@@ -49,6 +49,7 @@ Organism *org_new(World *w)
     o->last_theta = -1;
     o->has_moved = true;
     o->alive = true;
+    o->flash_color = FLASH_NONE;
     return o;
 }
 
@@ -472,8 +473,7 @@ bool org_move(Organism *o)
     World *w = o->world;
     bool collision = false;
     o->has_moved = false;
-    if (o->frames_color > 0)
-        o->frames_color--;
+    o->last_frame = o->r;
     if (fabs(o->dx) < BIO_TOL)
         o->dx = 0;
     if (fabs(o->dy) < BIO_TOL)

@@ -48,7 +48,7 @@ typedef struct {
     UIWin win;
     bool save;
     FilePurpose purpose;
-    char ext[8];
+    char ext[16]; /* "bgw|sbw": the files shown; the first is added to bare names */
     char dir[4096];
     char name[256];
     char **entries; /* directories end with '/' */

@@ -44,6 +44,13 @@ void world_init(World *w)
     stats_init(&w->stats);
 }
 
+static void world_bury(World *w)
+{
+    for (int i = 0; i < w->ngrave; i++)
+        org_free(w->grave[i]);
+    w->ngrave = 0;
+}
+
 void world_clear(World *w)
 {
     for (int i = 0; i < w->norgs; i++) {
@@ -52,7 +59,13 @@ void world_clear(World *w)
         org_free(w->orgs[i]);
     }
     w->norgs = 0;
+    world_bury(w);
     w->tree_valid = false;
+    w->str_built = false;
+    w->snapshot_n = 0;
+    w->str_nnodes = 0;
+    w->str_nkids = 0;
+    w->str_root = 0;
 }
 
 void world_free(World *w)
@@ -60,6 +73,7 @@ void world_free(World *w)
     world_clear(w);
     stats_release(&w->stats);
     free(w->orgs);
+    free(w->grave);
     free(w->snapshot);
     free(w->str_nodes);
     free(w->str_kids);
@@ -239,11 +253,6 @@ Organism *world_fast_check_hit(World *w, Organism *b1)
  * (Collections.sort), the same vertical slices, the same depth-first query.
  */
 
-typedef struct StrNode {
-    double env[4]; /* minx, maxx, miny, maxy */
-    int kid0, nkids; /* children: str_kids[kid0 .. kid0+nkids) */
-} StrNode;
-
 typedef struct StrKey {
     double key;
     int pos; /* place in the list being sorted: keeps the sort stable */
@@ -294,7 +303,7 @@ static void str_sort(World *w, int *refs, int n, int axis)
 
 /* AbstractSTRtree.createParentBoundables, for one vertical slice: sorted by
  * centre y, then cut into nodes of 10 in that order. */
-static void str_pack_slice(World *w, int *refs, int n, int *out, int *nout)
+static void str_pack_slice(World *w, int *refs, int n, int level, int *out, int *nout)
 {
     str_sort(w, refs, n, 2);
     for (int i = 0; i < n; i += STR_NODE_CAPACITY) {
@@ -303,6 +312,10 @@ static void str_pack_slice(World *w, int *refs, int n, int *out, int *nout)
             w->str_nodes = xrealloc(w->str_nodes, (size_t)w->str_nodes_cap * sizeof *w->str_nodes);
         }
         StrNode *nd = &w->str_nodes[w->str_nnodes];
+        nd->level = level;
+        /* the root's bounds are computed by the first query, the others'
+         * when the next level up is sorted; a saved tree is always queried */
+        nd->has_bounds = true;
         nd->kid0 = w->str_nkids;
         nd->nkids = n - i < STR_NODE_CAPACITY ? n - i : STR_NODE_CAPACITY;
         for (int k = 0; k < nd->nkids; k++) {
@@ -324,7 +337,7 @@ static void str_pack_slice(World *w, int *refs, int n, int *out, int *nout)
 
 /* STRtree.createParentBoundables: sorted by centre x, cut into
  * ceil(sqrt(ceil(n / 10))) vertical slices, each packed into nodes. */
-static int str_parents(World *w, const int *refs, int n, int *out)
+static int str_parents(World *w, const int *refs, int n, int level, int *out)
 {
     int min_leaf_count = (int)ceil(n / (double)STR_NODE_CAPACITY);
     int *sorted = w->str_x;
@@ -335,7 +348,7 @@ static int str_parents(World *w, const int *refs, int n, int *out)
     int nout = 0;
     for (int j = 0, i = 0; j < slice_count; j++) {
         int len = n - i < slice_capacity ? n - i : slice_capacity;
-        str_pack_slice(w, sorted + i, len, out, &nout);
+        str_pack_slice(w, sorted + i, len, level, out, &nout);
         i += len;
     }
     return nout;
@@ -367,15 +380,17 @@ static void build_tree(World *w)
                  (double)o->r.y + o->r.height);
         level[i] = i;
     }
+    w->snapshot_n = n;
     w->str_nnodes = 0;
     w->str_nkids = 0;
     w->str_root = 0;
+    w->str_built = false;
     w->tree_valid = true;
     if (n == 0)
         return;
     /* AbstractSTRtree.createHigherLevels */
-    for (;;) {
-        int np = str_parents(w, level, n, parents);
+    for (int lv = 0;; lv++) {
+        int np = str_parents(w, level, n, lv, parents);
         if (np == 1) {
             w->str_root = parents[0];
             return;
@@ -409,7 +424,10 @@ static void str_query(World *w, int node, const double *q, int *n)
 
 Organism *world_check_hit(World *w, Organism *org1)
 {
-    if (!w->tree_valid || w->str_root == 0)
+    if (!w->tree_valid)
+        return NULL;
+    w->str_built = true;
+    if (w->str_root == 0)
         return NULL;
     double q[4];
     env_init(q, org1->r.x, (double)org1->r.x + org1->r.width, org1->r.y,
@@ -433,6 +451,7 @@ Organism *world_check_hit(World *w, Organism *org1)
 
 void world_time(World *w)
 {
+    world_bury(w);
     build_tree(w);
     int l = w->norgs;
     for (int i = 0; i < l; i++) {
@@ -441,14 +460,18 @@ void world_time(World *w)
             b->removed = true;
     }
     /* Compact out the organisms that ran out of energy, keeping order. The
-     * collision index still references them, so they are freed only now. */
+     * collision index still references them, so they wait in the grave. */
     int k = 0;
     for (int i = 0; i < w->norgs; i++) {
         Organism *b = w->orgs[i];
         if (b->removed) {
             if (w->on_remove)
                 w->on_remove(w->ud, b);
-            org_free(b);
+            if (w->ngrave == w->grave_cap) {
+                w->grave_cap = w->grave_cap ? w->grave_cap * 2 : 16;
+                w->grave = xrealloc(w->grave, (size_t)w->grave_cap * sizeof *w->grave);
+            }
+            w->grave[w->ngrave++] = b;
         } else {
             w->orgs[k++] = b;
         }

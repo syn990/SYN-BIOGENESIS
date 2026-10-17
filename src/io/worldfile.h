@@ -14,11 +14,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-/* Saved worlds (.sbw).
- *
- * The Java version wrote worlds with Java object serialization (.bgw),
- * which only a JVM can read. This is a plain little-endian binary dump of
- * the same state: every organism field, the statistics, and the genetic
+/* Saved worlds (.sbw), this program's own format; io/bgw.h reads and
+ * writes Biogenesis 0.9's .bgw. This is a plain little-endian binary dump
+ * of the same state: every organism field, the statistics, and the genetic
  * codes stored once each so shared codes stay shared after loading (white
  * segments and pasted clones depend on code identity).
  */

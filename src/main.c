@@ -23,6 +23,8 @@
  *       --dump FILE     write per-frame state (see tools/javaref)
  *       --every K       dump every K frames (default 1)
  *       --hash FILE     write a hash of the same state every frame (see tools/drift)
+ *       --load FILE     start from a saved world (.bgw or .sbw) instead of a new one
+ *       --save FILE     save the world at the end (.bgw if so named, else .sbw)
  *       --report K      print a status line every K frames
  *       --defaults      ignore saved parameters
  *       --quiet
@@ -54,7 +56,7 @@ static int usage(void)
     fprintf(stderr, "usage: syn-biogenesis [seed]\n"
                     "       syn-biogenesis --headless [--frames N] [--seed S] [--dump FILE]\n"
                     "                      [--every K] [--hash FILE] [--report K] [--defaults]\n"
-                    "                      [--quiet]\n");
+                    "                      [--load FILE] [--save FILE] [--quiet]\n");
     return 2;
 }
 
@@ -90,6 +92,10 @@ int main(int argc, char **argv)
             h.dump_path = argv[++i];
         } else if (!strcmp(a, "--hash") && i + 1 < argc) {
             h.hash_path = argv[++i];
+        } else if (!strcmp(a, "--load") && i + 1 < argc) {
+            h.load_path = argv[++i];
+        } else if (!strcmp(a, "--save") && i + 1 < argc) {
+            h.save_path = argv[++i];
         } else if (a[0] != '-' && parse_long(a, &v)) {
             /* the original's only argument: java -jar biogenesis.jar [random seed] */
             seed = v;

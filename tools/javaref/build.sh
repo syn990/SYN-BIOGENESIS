@@ -21,8 +21,13 @@ rm -rf "$out"
 mkdir -p "$out/classes"
 cp "$jar" "$out/biogenesis.jar"
 cp "$jts" "$out/jts.jar"
-if ! javac -nowarn -cp "$out/biogenesis.jar:$out/jts.jar" -d "$out/classes" \
-	"$here/Stubs.java" "$here/Harness.java" "$here/BggInterop.java" 2>"$out/javac.log"; then
+# --release 8 where the compiler still offers it, so the same classes also
+# run on Java 8 (the Java the jar was built for)
+src="$here/Stubs.java $here/Harness.java $here/BggInterop.java $here/BgwRun.java"
+if ! javac -nowarn -Xlint:-options --release 8 -cp "$out/biogenesis.jar:$out/jts.jar" \
+	-d "$out/classes" $src 2>"$out/javac.log" &&
+	! javac -nowarn -cp "$out/biogenesis.jar:$out/jts.jar" -d "$out/classes" $src \
+		2>"$out/javac.log"; then
 	cat "$out/javac.log" >&2
 	exit 1
 fi

@@ -43,10 +43,19 @@ static int cmp_entry(const void *a, const void *b)
     return strcasecmp(x, y);
 }
 
+/* ext: one extension or several separated by '|' */
 static bool has_ext(const char *name, const char *ext)
 {
     const char *dot = strrchr(name, '.');
-    return dot && !strcasecmp(dot + 1, ext);
+    if (!dot)
+        return false;
+    for (const char *e = ext; *e;) {
+        size_t n = strcspn(e, "|");
+        if (strlen(dot + 1) == n && !strncasecmp(dot + 1, e, n))
+            return true;
+        e += n + (e[n] == '|');
+    }
+    return false;
 }
 
 static void scan(FileDialog *d)
@@ -159,7 +168,7 @@ static void accept(App *a)
         base = base ? base + 1 : path;
         if (!strchr(base, '.')) {
             size_t len = strlen(path);
-            snprintf(path + len, sizeof path - len, ".%s", d->ext);
+            snprintf(path + len, sizeof path - len, ".%.*s", (int)strcspn(d->ext, "|"), d->ext);
         }
     } else if (stat(path, &st) != 0) {
         return;
@@ -243,8 +252,13 @@ void filedlg_draw(App *a)
         ui_key_pressed(SDLK_RETURN))
         accept(a);
     y += rh + 8;
-    char filt[64];
-    snprintf(filt, sizeof filt, "*.%s", d->ext);
+    char filt[64] = "";
+    for (const char *e = d->ext; *e;) {
+        size_t n = strcspn(e, "|");
+        snprintf(filt + strlen(filt), sizeof filt - strlen(filt), "%s*.%.*s",
+                 filt[0] ? ", " : "", (int)n, e);
+        e += n + (e[n] == '|');
+    }
     ui_label_dim(c.x, y + 5, "Files of type:");
     ui_label(c.x + 100, y + 5, filt);
 

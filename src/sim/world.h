@@ -31,6 +31,14 @@
 #include "sim/organism.h"
 #include "sim/stats.h"
 
+/* A node of the collision tree (JTS AbstractNode / STRtreeNode) */
+typedef struct StrNode {
+    double env[4];   /* minx, maxx, miny, maxy */
+    int kid0, nkids; /* children: World.str_kids[kid0 .. kid0+nkids) */
+    int level;       /* 0 for the nodes that hold organisms */
+    bool has_bounds; /* JTS computes a node's bounds lazily; saved worlds show it */
+} StrNode;
+
 typedef struct World {
     int width, height;
     Organism **orgs; /* every organism, dead ones included, in Java list order */
@@ -43,8 +51,8 @@ typedef struct World {
 
     /* collision index (JTS STRtree), rebuilt in world_time */
     Organism **snapshot; /* frame-start list: the tree's items */
-    int snapshot_cap;
-    struct StrNode *str_nodes;
+    int snapshot_n, snapshot_cap;
+    StrNode *str_nodes;
     int str_nnodes, str_nodes_cap;
     int *str_kids; /* every node's children: item index >= 0, node ~index < 0 */
     int str_nkids, str_kids_cap;
@@ -53,10 +61,15 @@ typedef struct World {
     int *str_a, *str_b, *str_x;
     int str_scratch_cap;
     bool tree_valid;
+    bool str_built; /* queried this frame: JTS builds the tree on the first query */
     Organism **cand;
     int cand_cap;
+    /* Organisms removed in the last frame. The tree still holds them (and a
+     * saved world with it), so they are freed when the next frame starts. */
+    Organism **grave;
+    int ngrave, grave_cap;
 
-    /* Called just before an organism is freed (out of energy, or the world
+    /* Called when an organism leaves the world (out of energy, or the world
      * is cleared) so the UI can drop pointers to it. */
     void (*on_remove)(void *ud, Organism *o);
     void *ud;

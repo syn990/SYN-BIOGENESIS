@@ -14,6 +14,8 @@ trap 'rm -rf "$tmp"' EXIT
 status=0
 
 tests/sim_check "$tmp" || status=1
+./syn-biogenesis-headless --headless --defaults --quiet --seed 3 --frames 1500 \
+	--save "$tmp/fuzz.bgw" && tests/bgw_fuzz "$tmp/fuzz.bgw" 800 || status=1
 
 # .bgg reader cases (tests/bgg_cases): what 0.9 reads from each, or refuses
 n=0
@@ -92,6 +94,40 @@ if [ -f tools/javaref/build/biogenesis.jar ]; then
 fi
 
 if [ -f tools/javaref/build/biogenesis.jar ]; then
+	# .bgw: a world saved here is the file 0.9 saves; each program loads
+	# the other's and continues identically; a loaded file saves unchanged
+	cp="tools/javaref/build/classes:tools/javaref/build/biogenesis.jar:tools/javaref/build/jts.jar"
+	headless="./syn-biogenesis-headless --headless --defaults --quiet"
+	n=0
+	bad=0
+	for sf in 1:0 42:5 7:2000 2026:6000; do
+		seed=${sf%:*}
+		frames=${sf#*:}
+		java -cp "$cp" biogenesis.BgwRun "$seed" "$frames" - save "$tmp/j.bgw"
+		$headless --seed "$seed" --frames "$frames" --save "$tmp/c.bgw"
+		$headless --load "$tmp/j.bgw" --frames 0 --save "$tmp/r.bgw"
+		java -cp "$cp" biogenesis.BgwRun 5 800 "$tmp/jd.txt" load "$tmp/c.bgw"
+		$headless --load "$tmp/j.bgw" --seed 5 --frames 800 --dump "$tmp/cd.txt"
+		# loaded, run on and saved by each: 0.9 continues the same from both
+		java -cp "$cp" biogenesis.BgwRun 9 300 - load "$tmp/j.bgw" save "$tmp/jf.bgw"
+		$headless --load "$tmp/j.bgw" --seed 9 --frames 300 --save "$tmp/cf.bgw"
+		java -cp "$cp" biogenesis.BgwRun 6 300 "$tmp/jfd.txt" load "$tmp/jf.bgw"
+		java -cp "$cp" biogenesis.BgwRun 6 300 "$tmp/cfd.txt" load "$tmp/cf.bgw"
+		n=$((n + 1))
+		for pair in j.bgw:c.bgw j.bgw:r.bgw jd.txt:cd.txt jfd.txt:cfd.txt; do
+			if ! cmp -s "$tmp/${pair%:*}" "$tmp/${pair#*:}"; then
+				echo "  seed $seed, $frames frames: ${pair%:*} and ${pair#*:} differ"
+				bad=$((bad + 1))
+			fi
+		done
+	done
+	if [ $bad = 0 ]; then
+		echo ".bgw: $n worlds saved as 0.9 saves them, loaded both ways, continued identically"
+	else
+		echo "FAIL .bgw: $bad differences"
+		status=1
+	fi
+
 	for seed in 1 42 1234; do
 		tools/javaref/compare.sh "$seed" 3000 || status=1
 	done

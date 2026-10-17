@@ -18,6 +18,12 @@ tools/javaref/compare.sh 42 30000        # every frame
 tools/javaref/compare.sh 42 600000 100   # every 100th frame
 ```
 
+`BgwRun.java` runs a seeded or loaded world and saves it as 0.9's
+Save does (`.bgw`), for the world-file checks in `tests/run.sh`; the
+headless port's `--load` and `--save` do the same. The classes are
+compiled for Java 8 where the compiler allows it, so they also run on the
+Java the jar was built for.
+
 `BggInterop.java` writes genetic codes with the jar (random, mutated,
 evolved in a world, extreme values) and reads them with its validating
 `BioXMLParser`; `tests/run.sh` compares that reading with the port's.

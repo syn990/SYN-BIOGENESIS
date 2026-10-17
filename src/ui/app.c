@@ -30,6 +30,7 @@
 #include <unistd.h>
 
 #include "io/bgg.h"
+#include "io/bgw.h"
 #include "io/worldfile.h"
 #include "sim/params.h"
 
@@ -138,10 +139,16 @@ static bool file_exists(const char *p)
     return stat(p, &st) == 0;
 }
 
+/* Worlds open and save as Biogenesis 0.9's .bgw (the default) or .sbw */
+#define WORLD_EXTS BGW_FILE_EXT "|" WORLD_FILE_EXT
+
 static bool save_world_to(App *a, const char *path)
 {
     char err[256];
-    if (worldfile_save(&a->world, path, err, sizeof err)) {
+    size_t n = strlen(path);
+    bool sbw = n > 4 && !strcasecmp(path + n - 4, "." WORLD_FILE_EXT);
+    if (sbw ? worldfile_save(&a->world, path, err, sizeof err)
+            : bgw_save(&a->world, path, err, sizeof err)) {
         app_set_status(a, "Writing completed");
         return true;
     }
@@ -190,7 +197,7 @@ static void remember_dir(App *a, FilePurpose p, const char *path)
 
 static void save_game_as(App *a, bool then_quit)
 {
-    filedlg_open(a, then_quit ? FD_SAVE_WORLD_THEN_QUIT : FD_SAVE_WORLD, true, WORLD_FILE_EXT,
+    filedlg_open(a, then_quit ? FD_SAVE_WORLD_THEN_QUIT : FD_SAVE_WORLD, true, WORLD_EXTS,
                  a->last_dir_world);
 }
 
@@ -209,7 +216,8 @@ static void do_file_action(App *a, FilePurpose purpose, const char *path)
     remember_dir(a, purpose, path);
     switch (purpose) {
     case FD_OPEN_WORLD:
-        if (worldfile_load(&a->world, path, err, sizeof err)) {
+        if (bgw_sniff(path) ? bgw_load(&a->world, path, err, sizeof err)
+                            : worldfile_load(&a->world, path, err, sizeof err)) {
             a->selected = NULL;
             a->tracked = NULL;
             snprintf(a->game_file, sizeof a->game_file, "%s", path);
@@ -513,7 +521,7 @@ static void do_action(App *a, Action act)
             play_game(a);
         break;
     case A_OPEN:
-        filedlg_open(a, FD_OPEN_WORLD, false, WORLD_FILE_EXT, a->last_dir_world);
+        filedlg_open(a, FD_OPEN_WORLD, false, WORLD_EXTS, a->last_dir_world);
         break;
     case A_SAVE:
         save_game(a);
@@ -1028,7 +1036,7 @@ static void shot_prepare(App *a, const char *ui)
     else if (!strcmp(ui, "about"))
         do_action(a, A_ABOUT);
     else if (!strcmp(ui, "file"))
-        filedlg_open(a, FD_SAVE_WORLD, true, WORLD_FILE_EXT, a->last_dir_world);
+        filedlg_open(a, FD_SAVE_WORLD, true, WORLD_EXTS, a->last_dir_world);
 }
 
 static void shot_save(App *a, const char *path)

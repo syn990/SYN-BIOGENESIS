@@ -130,7 +130,7 @@ runtime. It is the same program as a small native binary:
 | Peak memory, 30,000 frames headless | 97 MB | 13 MB |
 | Simulation speed, same world | 1× (192.4 s for 600,000 frames) | 2.2× (87.5 s) |
 | When frames run late | multiplies its frame delay by 1.5; past one second, pauses the game | keeps the delay you set and catches up |
-| Saved worlds | Java object serialisation (`.bgw`) | a plain, versioned binary format (`.sbw`) |
+| Saved worlds | Java object serialisation (`.bgw`) | opens and saves those `.bgw` files, or its own plain binary `.sbw` |
 | Without a window | no | `--headless`: benchmarks, state dumps, state hashes |
 
 Timings are on an Intel i5-8500 with OpenJDK 27. Inside the window
@@ -199,6 +199,19 @@ headless next to the C port and both dump their state every frame (see
   and 79 hand-made variants (other encodings and line ends, references and
   entities, DTD defaults, number forms Java accepts and refuses). Also
   checked on 300,000 random number strings against `Double.parseDouble`.
+- **Saved worlds** (`.bgw`) pass both ways:
+  - A world started here saves to exactly the bytes 0.9 saves: 30 of 30
+    seeds and lengths, from a new world to 7,000 frames.
+  - Each program loads the other's files and continues identically.
+  - A loaded file saved again is unchanged, 30 of 30.
+  - A world loaded and then run on saves with the same content as 0.9's
+    file, but not always the same bytes. After loading, 0.9 holds two
+    copies of some colours (the ones it read and its own constants) and
+    writes both. 0.9 continues identically from either file.
+  - Files Java 8 wrote load here, and Java 8 loads these and saves them
+    back unchanged.
+  - 4,000 damaged files are refused or loaded without a crash, checked
+    under the address and undefined-behaviour sanitizers.
 - `Math.sin`, `cos` and `pow` identical to the JVM on 12 million inputs,
   including huge, tiny, infinite and NaN ones; `atan2` on 2 million. `make
   test` repeats 2 million of each.
@@ -320,9 +333,9 @@ Not measured here:
 
 So the Java program has never been one world per seed. It is one world per
 seed, per JVM family and processor. SYN-BIOGENESIS reproduces the one that
-modern HotSpot computes on x86_64. A saved world (`.sbw`, like Java's
-`.bgw`) holds every organism's exact state but not the random-number
-stream, so a loaded world takes a new path from there.
+modern HotSpot computes on x86_64. A saved world (`.bgw` or `.sbw`) holds
+every organism's exact state but not the random-number stream, which
+neither program saves, so a loaded world takes a new path from there.
 
 ## Build and run
 
@@ -366,10 +379,10 @@ create randomly, import).
 
 ### Differences from the Java version
 
-- **World files** are `.sbw`. Java's `.bgw` files (Java object
-  serialisation) aren't read yet. Nothing prevents it: they store every
-  value bit for bit. They don't store the random-number state or the
-  parameters, though, so a loaded world continues differently in each
+- **World files:** Open reads 0.9's `.bgw` and this program's `.sbw`;
+  Save writes `.bgw` unless you name the file `.sbw`. Worlds pass both ways
+  between the two programs. Neither format stores the random-number state
+  or the parameters, so a loaded world continues differently in each
   program unless both are given the same seed after loading.
 - **Genetic codes** stay `.bgg` and pass both ways. The only difference: a
   code with no DTD block, which 0.9 refuses, opens here as if it had 0.9's.
@@ -391,7 +404,8 @@ src/sim/        simulation: organism, world (with the STRtree), genetic code, st
                 java.util.Random, java.awt geometry semantics, parameters, and the
                 JVM's sin/cos/pow (jvm_libm_x86_64.S, generated)
 src/fdlibm/     fdlibm's atan2, which is what Math.atan2 is
-src/io/         .bgg genetic codes (XML), .sbw worlds
+src/io/         .bgg genetic codes (XML); .bgw worlds (Java serialization, jser.c);
+                .sbw worlds
 src/ui/         SDL2 front end: immediate-mode widgets, world view, dialogs
 src/headless.c, src/main.c
 tests/          make test
@@ -405,13 +419,18 @@ tools/javaref/fetch.sh   # once: downloads Biogenesis 0.9, builds the Java refer
 make test
 ```
 
-`make test` runs the file-format checks (a world saved and reloaded mid-run
-continues identically; malformed files are refused), the genetic-code
-cases in `tests/bgg_cases/` (what 0.9 reads from each is in its
-`expected.txt`), the geometry, maths and number-parsing checks against the
-JVM, genetic codes written by the jar (and the gallery's, once fetched)
-read by both programs, and the frame-by-frame comparison with the shipped
-jar. The Java parts are
+`make test` runs these checks:
+- the file formats: a world saved and reloaded mid-run, as `.sbw` and as
+  `.bgw`, continues identically, and damaged files are refused
+- 800 damaged `.bgw` files loaded without a crash
+- the genetic-code cases in `tests/bgg_cases/` (what 0.9 reads from each
+  is in its `expected.txt`)
+- the geometry, maths and number-parsing checks against the JVM
+- genetic codes written by the jar (and the gallery's, once fetched), read
+  by both programs
+- worlds saved by the jar and by the port, compared byte for byte, loaded
+  by the other and continued
+- the frame-by-frame comparison with the shipped jar The Java parts are
 skipped without a JDK. The reference runs the jar's own classes, not
 recompiled and not patched. Only the Swing classes they call into are
 replaced with no-op stand-ins, so they run without a window.

@@ -17,7 +17,8 @@
 /* File format checks.
  *
  * 1. A world saved and loaded mid-run continues exactly like the world
- *    that was never saved (same random stream, compared field by field).
+ *    that was never saved (same random stream, compared field by field),
+ *    as .sbw and as .bgw; a .bgw saved again after loading is unchanged.
  * 2. Genetic codes survive a .bgg write/read with every double intact.
  * 3. Malformed .bgg input is rejected, not half-loaded.
  */
@@ -28,6 +29,7 @@
 #include <unistd.h>
 
 #include "io/bgg.h"
+#include "io/bgw.h"
 #include "io/worldfile.h"
 #include "sim/params.h"
 #include "sim/world.h"
@@ -74,7 +76,24 @@ static bool same_world(const World *a, const World *b)
     return true;
 }
 
-static void check_world_roundtrip(const char *path)
+typedef bool (*SaveFn)(const World *, const char *, char *, size_t);
+typedef bool (*LoadFn)(World *, const char *, char *, size_t);
+
+static bool same_file(const char *p, const char *q)
+{
+    FILE *a = fopen(p, "rb"), *b = fopen(q, "rb");
+    bool same = a && b;
+    int x, y;
+    while (same && ((x = fgetc(a)) != EOF) | ((y = fgetc(b)) != EOF))
+        same = x == y;
+    if (a)
+        fclose(a);
+    if (b)
+        fclose(b);
+    return same;
+}
+
+static void check_world_roundtrip(const char *path, const char *ext, SaveFn save, LoadFn load)
 {
     jr_set_seed(&g_rng, 4242);
     World a;
@@ -84,11 +103,17 @@ static void check_world_roundtrip(const char *path)
         world_time(&a);
 
     char err[256];
-    CHECK(worldfile_save(&a, path, err, sizeof err), "save: %s", err);
+    CHECK(save(&a, path, err, sizeof err), "save: %s", err);
     World b;
     world_init(&b);
-    CHECK(worldfile_load(&b, path, err, sizeof err), "load: %s", err);
+    CHECK(load(&b, path, err, sizeof err), "load: %s", err);
     CHECK(same_world(&a, &b), "loaded world differs from saved world");
+    char again[1100];
+    snprintf(again, sizeof again, "%s.again", path);
+    CHECK(save(&b, again, err, sizeof err), "save again: %s", err);
+    if (save == bgw_save)
+        CHECK(same_file(path, again), "a loaded .bgw saves differently");
+    remove(again);
 
     /* identity of shared codes must survive (white segments compare them) */
     int shared_a = 0, shared_b = 0;
@@ -106,7 +131,8 @@ static void check_world_roundtrip(const char *path)
     for (int i = 0; i < 3000; i++)
         world_time(&b);
     CHECK(same_world(&a, &b), "loaded world diverged after 3000 more frames");
-    printf("world save/load: %d organisms, identical continuation for 3000 frames\n", a.norgs);
+    printf("world save/load (.%s): %d organisms, identical continuation for 3000 frames\n", ext,
+           a.norgs);
     world_free(&a);
     world_free(&b);
 
@@ -123,7 +149,7 @@ static void check_world_roundtrip(const char *path)
     world_init(&c);
     world_genesis(&c);
     int before = c.norgs;
-    CHECK(!worldfile_load(&c, path, err, sizeof err), "truncated world was accepted");
+    CHECK(!load(&c, path, err, sizeof err), "truncated world was accepted");
     CHECK(c.norgs == before, "failed load modified the world");
     world_free(&c);
 }
@@ -180,13 +206,16 @@ static void check_bgg_roundtrip(const char *path)
 int main(int argc, char **argv)
 {
     const char *dir = argc > 1 ? argv[1] : "/tmp";
-    char wpath[1024], gpath[1024];
+    char wpath[1024], bpath[1024], gpath[1024];
     snprintf(wpath, sizeof wpath, "%s/sim_check_world.sbw", dir);
+    snprintf(bpath, sizeof bpath, "%s/sim_check_world.bgw", dir);
     snprintf(gpath, sizeof gpath, "%s/sim_check_code.bgg", dir);
     params_set_defaults(&P);
-    check_world_roundtrip(wpath);
+    check_world_roundtrip(wpath, WORLD_FILE_EXT, worldfile_save, worldfile_load);
+    check_world_roundtrip(bpath, BGW_FILE_EXT, bgw_save, bgw_load);
     check_bgg_roundtrip(gpath);
     remove(wpath);
+    remove(bpath);
     remove(gpath);
     if (failures) {
         printf("%d check(s) failed\n", failures);

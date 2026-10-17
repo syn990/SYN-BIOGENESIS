@@ -24,6 +24,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "io/bgw.h"
+#include "io/worldfile.h"
 #include "sim/params.h"
 #include "sim/world.h"
 
@@ -111,7 +113,18 @@ int headless_run(const HeadlessOptions *opt)
 {
     World w;
     world_init(&w);
-    world_genesis(&w);
+    char err[256];
+    if (opt->load_path) {
+        bool ok = bgw_sniff(opt->load_path) ? bgw_load(&w, opt->load_path, err, sizeof err)
+                                             : worldfile_load(&w, opt->load_path, err, sizeof err);
+        if (!ok) {
+            fprintf(stderr, "%s: %s\n", opt->load_path, err);
+            world_free(&w);
+            return 1;
+        }
+    } else {
+        world_genesis(&w);
+    }
     FILE *dump = NULL;
     if (opt->dump_path) {
         dump = fopen(opt->dump_path, "w");
@@ -144,6 +157,16 @@ int headless_run(const HeadlessOptions *opt)
                    w.population, w.norgs, w.o2, w.co2);
     }
     double dt = now_s() - t0;
+    if (opt->save_path) {
+        size_t n = strlen(opt->save_path);
+        bool bgw = n > 4 && !strcmp(opt->save_path + n - 4, "." BGW_FILE_EXT);
+        if (!(bgw ? bgw_save(&w, opt->save_path, err, sizeof err)
+                  : worldfile_save(&w, opt->save_path, err, sizeof err))) {
+            fprintf(stderr, "%s: %s\n", opt->save_path, err);
+            world_free(&w);
+            return 1;
+        }
+    }
     if (dump)
         fclose(dump);
     if (hash)

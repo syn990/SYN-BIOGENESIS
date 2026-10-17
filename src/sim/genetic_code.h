@@ -52,6 +52,11 @@ typedef struct {
     double length;
     double theta;
     uint8_t color; /* BioColor */
+    /* Which Java Gene object this is: a child's code shares the genes it
+     * copies unchanged with its parent's (GeneticCode(parent)), and saved
+     * worlds (.bgw) keep that sharing. Copies keep the id; new genes get
+     * gene_new_id(). */
+    uint32_t id;
 } Gene;
 
 typedef struct GeneticCode {
@@ -69,12 +74,13 @@ void gene_randomize_color(Gene *g);
 void gene_randomize_length(Gene *g);
 void gene_randomize_theta(Gene *g);
 void gene_randomize(Gene *g);
+uint32_t gene_new_id(void);
 
 /* new GeneticCode(): a random code. */
 GeneticCode *gc_new_random(void);
 /* new GeneticCode(parent): a mutated copy. */
 GeneticCode *gc_new_mutated(const GeneticCode *parent);
-/* new GeneticCode(genes, symmetry, mirror, disperse) */
+/* new GeneticCode(genes, symmetry, mirror, disperse), the genes new objects */
 GeneticCode *gc_new_from_genes(const Gene *genes, int n, int symmetry, int mirror, bool disperse);
 
 GeneticCode *gc_ref(GeneticCode *gc);

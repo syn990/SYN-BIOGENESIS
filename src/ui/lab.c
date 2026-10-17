@@ -63,7 +63,7 @@ static void insert_gene(LabWindow *l, int at)
     if (l->ngenes >= LAB_MAX_GENES)
         return;
     memmove(&l->genes[at + 1], &l->genes[at], (size_t)(l->ngenes - at) * sizeof(Gene));
-    l->genes[at] = (Gene){2.0, 0.0, COL_GREEN};
+    l->genes[at] = (Gene){.length = 2.0, .theta = 0.0, .color = COL_GREEN};
     l->ngenes++;
 }
 

@@ -16,7 +16,7 @@ SDL_LIBS = $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf SDL2_image)
 
 SIM_SRC = src/sim/jrandom.c src/sim/jgeom.c src/sim/params.c src/sim/genetic_code.c \
           src/sim/organism.c src/sim/world.c src/sim/stats.c \
-          src/io/bgg.c src/io/worldfile.c
+          src/io/bgg.c src/io/worldfile.c src/io/jser.c src/io/bgw.c
 CORE_SRC = $(SIM_SRC) src/headless.c src/main.c
 UI_SRC = $(wildcard src/ui/*.c)
 
@@ -94,14 +94,17 @@ tests/math_check: tests/math_check.c $(MATH_OBJ)
 tests/num_check: tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+tests/bgw_fuzz: tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
 # File format checks, the java.awt geometry against the JVM, and the
 # frame-by-frame comparison with the Java original (the last two need a
 # JDK; see tools/javaref/README.md).
-test: syn-biogenesis-headless tests/geom_check tests/sim_check tests/bgg_tool tests/math_check tests/num_check
+test: syn-biogenesis-headless tests/geom_check tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz
 	tests/run.sh
 
 clean:
 	rm -rf obj syn-biogenesis syn-biogenesis-headless syn-biogenesis-headless-libc tests/geom_check \
-		tests/sim_check tests/bgg_tool tests/math_check tests/num_check
+		tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz
 
 -include $(OBJ:.o=.d) $(HEADLESS_OBJ:.o=.d) $(LIBC_OBJ:.o=.d)

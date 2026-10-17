@@ -34,6 +34,8 @@
 
 struct World;
 
+#define FLASH_NONE 0xff
+
 typedef struct Organism {
     JRect r;
     GeneticCode *gc;
@@ -66,12 +68,14 @@ typedef struct Organism {
     double last_theta;
     double dx, dy, dtheta;
     int age;
-    uint8_t flash_color; /* drawn instead of segment colours while frames_color > 0 */
+    uint8_t flash_color; /* drawn instead of segment colours while frames_color > 0;
+                            FLASH_NONE until the first flash (Java's null) */
     int frames_color;
     int time_to_reproduce;
     int has_grown;
     bool has_moved;
     bool alive;
+    JRect last_frame; /* bounds when the frame began (Java's lastFrame, for repaints) */
 
     /* world bookkeeping, not part of the Java organism */
     bool removed;    /* out of energy this frame; freed when the frame ends */

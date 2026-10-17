@@ -242,7 +242,8 @@ static void plot_line(Canvas *c, int x0, int y0, int x1, int y1, uint32_t col)
 /* Organism.draw: flash colour, else segment colours (brown once dead). */
 static void draw_organism(Canvas *c, const Organism *o, double ox, double oy, double k)
 {
-    uint32_t flash = o->frames_color > 0 ? argb(o->flash_color) : 0;
+    uint32_t flash =
+        o->frames_color > 0 && o->flash_color != FLASH_NONE ? argb(o->flash_color) : 0;
     uint32_t brown = argb(COL_BROWN);
     for (int i = 0; i < o->segments; i++) {
         uint32_t col = flash ? flash : (o->alive ? argb(o->seg_color[i]) : brown);
@@ -318,11 +319,14 @@ void wv_draw(WorldView *v, const World *w, const Organism *selected)
 
     double wx0 = ox, wy0 = oy, wx1 = ox + bw / k, wy1 = oy + bh / k;
     for (int i = 0; i < w->norgs; i++) {
-        const Organism *o = w->orgs[i];
+        Organism *o = w->orgs[i];
         if (o->r.x > wx1 || o->r.y > wy1 || o->r.x + o->r.width < wx0 ||
             o->r.y + o->r.height < wy0)
             continue;
         draw_organism(&c, o, ox, oy, k);
+        /* as Organism.draw: the flash lasts ten drawings */
+        if (o->frames_color > 0)
+            o->frames_color--;
     }
     if (selected) {
         const JRect *r = &selected->r;

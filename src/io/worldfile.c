@@ -423,8 +423,7 @@ bool worldfile_load(World *dst, const char *path, char *err, size_t errn)
     if (!r.ok || memcmp(magic, k_magic, 8) != 0) {
         fclose(f);
         set_err(err, errn,
-                "It seems that this file doesn't contain a SYN-BIOGENESIS world "
-                "(Java .bgw worlds can't be read)");
+                "It seems that this file doesn't contain a SYN-BIOGENESIS world");
         return false;
     }
     if ((uint32_t)r_i32(&r) != WORLD_FILE_VERSION) {

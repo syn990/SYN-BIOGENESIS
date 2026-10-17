@@ -24,6 +24,8 @@ typedef struct {
     const char *dump_path; /* NULL: no dump */
     long dump_every;
     const char *hash_path; /* NULL: no per-frame state hashes */
+    const char *load_path; /* NULL: a new world (genesis) */
+    const char *save_path; /* NULL: not saved at the end */
     long report_every;
     bool quiet;
 } HeadlessOptions;

@@ -74,8 +74,15 @@ void gene_randomize_theta(Gene *g)
     g->theta = jr_next_double(&g_rng) * 2.0 * M_PI;
 }
 
+uint32_t gene_new_id(void)
+{
+    static uint32_t next;
+    return ++next;
+}
+
 void gene_randomize(Gene *g)
 {
+    g->id = gene_new_id();
     gene_randomize_length(g);
     gene_randomize_theta(g);
     gene_randomize_color(g);
@@ -180,6 +187,7 @@ GeneticCode *gc_new_mutated(const GeneticCode *parent)
         const Gene *src = &parent->genes[j];
         if (rlen || rtheta || rcolor || rback) {
             Gene *g = &gc->genes[i];
+            g->id = gene_new_id();
             if (rlen)
                 gene_randomize_length(g);
             else
@@ -210,6 +218,8 @@ GeneticCode *gc_new_from_genes(const Gene *genes, int n, int symmetry, int mirro
     GeneticCode *gc = gc_alloc(n);
     if (n > 0)
         memcpy(gc->genes, genes, (size_t)n * sizeof(Gene));
+    for (int i = 0; i < n; i++)
+        gc->genes[i].id = gene_new_id();
     gc->max_age = P.max_age;
     gc->mirror = mirror;
     gc->symmetry = symmetry;

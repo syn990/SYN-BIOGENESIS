@@ -7,6 +7,7 @@
 /tests/bgg_tool
 /tests/math_check
 /tests/num_check
+/tests/bgw_fuzz
 /tools/javaref/download/
 /tools/javaref/build/
 /tools/jvmlibm/download/
