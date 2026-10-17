@@ -1,0 +1,13 @@
+/obj/
+/syn-biogenesis
+/syn-biogenesis-headless
+/syn-biogenesis-strict
+/tests/geom_check
+/tests/sim_check
+/tests/bgg_tool
+/tools/javaref/download/
+/tools/javaref/build/
+/tools/javaref/build-strict/
+*.sbw
+*.bgg
+gmon.out
