@@ -23,6 +23,7 @@ typedef struct {
     long frames;
     const char *dump_path; /* NULL: no dump */
     long dump_every;
+    const char *hash_path; /* NULL: no per-frame state hashes */
     long report_every;
     bool quiet;
 } HeadlessOptions;

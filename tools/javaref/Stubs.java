@@ -14,10 +14,10 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-/* Stand-ins for the Swing side of Biogenesis 0.9, so the original
- * simulation classes (World, Organism, GeneticCode, Gene, Utils, ...) compile
- * and run headless. Only what those classes touch is stubbed; every method
- * is a no-op because nothing on screen affects the simulation. */
+/* Stand-ins for the Swing side of Biogenesis 0.9, so the shipped jar's
+ * simulation classes (World, Organism, GeneticCode, Gene, Utils, ...) run
+ * headless. Only what those classes touch is stubbed; every method is a
+ * no-op because nothing on screen affects the simulation. */
 package biogenesis;
 
 import java.awt.Dimension;

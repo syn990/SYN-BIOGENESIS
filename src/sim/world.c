@@ -5,6 +5,10 @@
  * of Biogenesis 0.9 (https://biogenesis.sourceforge.net/),
  * Copyright (C) 2006-2010 Joan Queralt Molina.
  *
+ * The collision index is translated from JTS 1.15.0's STRtree
+ * (https://github.com/locationtech/jts), Copyright (c) 2016 Vivid
+ * Solutions, under the Eclipse Distribution License v1.0: see LICENSE.JTS.
+ *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
  * Free Software Foundation; either version 2 of the License, or (at your
@@ -18,12 +22,11 @@
 
 #include "sim/world.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "sim/params.h"
-
-#define GRID_CELL 32
 
 static void *xrealloc(void *p, size_t n)
 {
@@ -49,7 +52,7 @@ void world_clear(World *w)
         org_free(w->orgs[i]);
     }
     w->norgs = 0;
-    w->grid_valid = false;
+    w->tree_valid = false;
 }
 
 void world_free(World *w)
@@ -57,9 +60,13 @@ void world_free(World *w)
     world_clear(w);
     stats_release(&w->stats);
     free(w->orgs);
-    free(w->cell_start);
-    free(w->cell_items);
     free(w->snapshot);
+    free(w->str_nodes);
+    free(w->str_kids);
+    free(w->str_keys);
+    free(w->str_a);
+    free(w->str_b);
+    free(w->str_x);
     free(w->cand);
     memset(w, 0, sizeof *w);
 }
@@ -222,124 +229,194 @@ Organism *world_fast_check_hit(World *w, Organism *b1)
     return NULL;
 }
 
-/* ---- collision index ---- */
+/* ---- collision index ----
+ *
+ * World.time inserts every organism's frame-start bounding box into a new
+ * JTS STRtree (jts-core 1.15.0, node capacity 10), and checkHit visits what
+ * STRtree.query returns in the order it returns it. The first candidate in
+ * contact wins, so that order is part of the simulation. This is the same
+ * tree: sort-tile-recursive packing with stable sorts on box centres
+ * (Collections.sort), the same vertical slices, the same depth-first query.
+ */
 
-static int clampi(int v, int lo, int hi)
+typedef struct StrNode {
+    double env[4]; /* minx, maxx, miny, maxy */
+    int kid0, nkids; /* children: str_kids[kid0 .. kid0+nkids) */
+} StrNode;
+
+typedef struct StrKey {
+    double key;
+    int pos; /* place in the list being sorted: keeps the sort stable */
+    int ref;
+} StrKey;
+
+#define STR_NODE_CAPACITY 10
+
+/* Envelope(x1, x2, y1, y2) */
+static void env_init(double *e, double x1, double x2, double y1, double y2)
 {
-    return v < lo ? lo : (v > hi ? hi : v);
+    e[0] = x1 < x2 ? x1 : x2;
+    e[1] = x1 < x2 ? x2 : x1;
+    e[2] = y1 < y2 ? y1 : y2;
+    e[3] = y1 < y2 ? y2 : y1;
 }
 
-static void cell_range(const World *w, double minx, double maxx, double miny, double maxy,
-                       int *cx0, int *cx1, int *cy0, int *cy1)
+/* Envelope.intersects: inclusive on every side */
+static bool env_intersects(const double *a, const double *b)
 {
-    /* floor division, clamped: anything outside the world lands in the
-     * border cells, so inclusive envelope overlaps always share a cell */
-    int x0 = (int)minx, x1 = (int)maxx, y0 = (int)miny, y1 = (int)maxy;
-    x0 = x0 < 0 ? -1 : x0 / w->cell;
-    x1 = x1 < 0 ? -1 : x1 / w->cell;
-    y0 = y0 < 0 ? -1 : y0 / w->cell;
-    y1 = y1 < 0 ? -1 : y1 / w->cell;
-    *cx0 = clampi(x0, 0, w->grid_w - 1);
-    *cx1 = clampi(x1, 0, w->grid_w - 1);
-    *cy0 = clampi(y0, 0, w->grid_h - 1);
-    *cy1 = clampi(y1, 0, w->grid_h - 1);
+    return !(b[0] > a[1] || b[1] < a[0] || b[2] > a[3] || b[3] < a[2]);
 }
 
-static void build_grid(World *w)
+static const double *ref_env(const World *w, int ref)
 {
-    w->cell = GRID_CELL;
-    int gw = w->width / w->cell + 1, gh = w->height / w->cell + 1;
-    if (gw != w->grid_w || gh != w->grid_h || !w->cell_start) {
-        w->grid_w = gw;
-        w->grid_h = gh;
-        w->cell_start = xrealloc(w->cell_start, ((size_t)gw * gh + 1) * sizeof(int));
+    return ref >= 0 ? w->snapshot[ref]->env : w->str_nodes[~ref].env;
+}
+
+static int cmp_key(const void *a, const void *b)
+{
+    const StrKey *x = a, *y = b;
+    if (x->key != y->key)
+        return x->key > y->key ? 1 : -1;
+    return (x->pos > y->pos) - (x->pos < y->pos);
+}
+
+/* Sorts refs[0..n) by box centre, x (axis 0) or y (axis 2), stably. */
+static void str_sort(World *w, int *refs, int n, int axis)
+{
+    for (int i = 0; i < n; i++) {
+        const double *e = ref_env(w, refs[i]);
+        w->str_keys[i] = (StrKey){(e[axis] + e[axis + 1]) / 2.0, i, refs[i]};
     }
-    int ncells = gw * gh;
-    if (w->snapshot_cap < w->norgs) {
-        w->snapshot_cap = w->norgs * 2;
+    qsort(w->str_keys, (size_t)n, sizeof *w->str_keys, cmp_key);
+    for (int i = 0; i < n; i++)
+        refs[i] = w->str_keys[i].ref;
+}
+
+/* AbstractSTRtree.createParentBoundables, for one vertical slice: sorted by
+ * centre y, then cut into nodes of 10 in that order. */
+static void str_pack_slice(World *w, int *refs, int n, int *out, int *nout)
+{
+    str_sort(w, refs, n, 2);
+    for (int i = 0; i < n; i += STR_NODE_CAPACITY) {
+        if (w->str_nnodes == w->str_nodes_cap) {
+            w->str_nodes_cap = w->str_nodes_cap ? w->str_nodes_cap * 2 : 64;
+            w->str_nodes = xrealloc(w->str_nodes, (size_t)w->str_nodes_cap * sizeof *w->str_nodes);
+        }
+        StrNode *nd = &w->str_nodes[w->str_nnodes];
+        nd->kid0 = w->str_nkids;
+        nd->nkids = n - i < STR_NODE_CAPACITY ? n - i : STR_NODE_CAPACITY;
+        for (int k = 0; k < nd->nkids; k++) {
+            int ref = refs[i + k];
+            const double *e = ref_env(w, ref);
+            w->str_kids[w->str_nkids++] = ref;
+            if (k == 0) {
+                memcpy(nd->env, e, sizeof nd->env);
+            } else {
+                if (e[0] < nd->env[0]) nd->env[0] = e[0];
+                if (e[1] > nd->env[1]) nd->env[1] = e[1];
+                if (e[2] < nd->env[2]) nd->env[2] = e[2];
+                if (e[3] > nd->env[3]) nd->env[3] = e[3];
+            }
+        }
+        out[(*nout)++] = ~w->str_nnodes++;
+    }
+}
+
+/* STRtree.createParentBoundables: sorted by centre x, cut into
+ * ceil(sqrt(ceil(n / 10))) vertical slices, each packed into nodes. */
+static int str_parents(World *w, const int *refs, int n, int *out)
+{
+    int min_leaf_count = (int)ceil(n / (double)STR_NODE_CAPACITY);
+    int *sorted = w->str_x;
+    memcpy(sorted, refs, (size_t)n * sizeof *sorted);
+    str_sort(w, sorted, n, 0);
+    int slice_count = (int)ceil(sqrt(min_leaf_count));
+    int slice_capacity = (int)ceil(n / (double)slice_count);
+    int nout = 0;
+    for (int j = 0, i = 0; j < slice_count; j++) {
+        int len = n - i < slice_capacity ? n - i : slice_capacity;
+        str_pack_slice(w, sorted + i, len, out, &nout);
+        i += len;
+    }
+    return nout;
+}
+
+static void build_tree(World *w)
+{
+    int n = w->norgs;
+    if (w->snapshot_cap < n) {
+        w->snapshot_cap = n * 2;
         w->snapshot = xrealloc(w->snapshot, (size_t)w->snapshot_cap * sizeof *w->snapshot);
     }
-    w->snapshot_n = w->norgs;
-    memset(w->cell_start, 0, ((size_t)ncells + 1) * sizeof(int));
-
-    /* pass 1: envelopes and counts */
-    long total = 0;
-    for (int i = 0; i < w->norgs; i++) {
+    if (w->str_scratch_cap < n) {
+        w->str_scratch_cap = n * 2;
+        size_t c = (size_t)w->str_scratch_cap;
+        w->str_keys = xrealloc(w->str_keys, c * sizeof *w->str_keys);
+        w->str_a = xrealloc(w->str_a, c * sizeof *w->str_a);
+        w->str_b = xrealloc(w->str_b, c * sizeof *w->str_b);
+        w->str_x = xrealloc(w->str_x, c * sizeof *w->str_x);
+        /* each item and each node but the root is one node's child */
+        w->str_kids_cap = (int)c * 2;
+        w->str_kids = xrealloc(w->str_kids, (size_t)w->str_kids_cap * sizeof *w->str_kids);
+    }
+    int *level = w->str_a, *parents = w->str_b;
+    for (int i = 0; i < n; i++) {
         Organism *o = w->orgs[i];
         w->snapshot[i] = o;
-        o->tree_idx = i;
-        o->env[0] = o->r.x;
-        o->env[1] = (double)o->r.x + o->r.width;
-        o->env[2] = o->r.y;
-        o->env[3] = (double)o->r.y + o->r.height;
-        int cx0, cx1, cy0, cy1;
-        cell_range(w, o->env[0], o->env[1], o->env[2], o->env[3], &cx0, &cx1, &cy0, &cy1);
-        for (int cy = cy0; cy <= cy1; cy++)
-            for (int cx = cx0; cx <= cx1; cx++)
-                w->cell_start[cy * gw + cx + 1]++;
-        total += (long)(cx1 - cx0 + 1) * (cy1 - cy0 + 1);
+        env_init(o->env, o->r.x, (double)o->r.x + o->r.width, o->r.y,
+                 (double)o->r.y + o->r.height);
+        level[i] = i;
     }
-    for (int c = 0; c < ncells; c++)
-        w->cell_start[c + 1] += w->cell_start[c];
-    if (w->cell_items_cap < total) {
-        w->cell_items_cap = (int)total * 2;
-        w->cell_items = xrealloc(w->cell_items, (size_t)w->cell_items_cap * sizeof(int));
+    w->str_nnodes = 0;
+    w->str_nkids = 0;
+    w->str_root = 0;
+    w->tree_valid = true;
+    if (n == 0)
+        return;
+    /* AbstractSTRtree.createHigherLevels */
+    for (;;) {
+        int np = str_parents(w, level, n, parents);
+        if (np == 1) {
+            w->str_root = parents[0];
+            return;
+        }
+        int *t = level;
+        level = parents;
+        parents = t;
+        n = np;
     }
-    /* pass 2: fill, using a moving cursor per cell */
-    int *cursor = malloc(((size_t)ncells + 1) * sizeof(int));
-    if (!cursor)
-        abort();
-    memcpy(cursor, w->cell_start, ((size_t)ncells + 1) * sizeof(int));
-    for (int i = 0; i < w->norgs; i++) {
-        Organism *o = w->orgs[i];
-        int cx0, cx1, cy0, cy1;
-        cell_range(w, o->env[0], o->env[1], o->env[2], o->env[3], &cx0, &cx1, &cy0, &cy1);
-        for (int cy = cy0; cy <= cy1; cy++)
-            for (int cx = cx0; cx <= cx1; cx++)
-                w->cell_items[cursor[cy * gw + cx]++] = i;
-    }
-    free(cursor);
-    w->grid_valid = true;
 }
 
-static int cmp_tree_idx(const void *a, const void *b)
+/* AbstractSTRtree.queryInternal */
+static void str_query(World *w, int node, const double *q, int *n)
 {
-    const Organism *x = *(Organism *const *)a, *y = *(Organism *const *)b;
-    return (x->tree_idx > y->tree_idx) - (x->tree_idx < y->tree_idx);
+    const StrNode *nd = &w->str_nodes[node];
+    for (int k = 0; k < nd->nkids; k++) {
+        int ref = w->str_kids[nd->kid0 + k];
+        if (!env_intersects(ref_env(w, ref), q))
+            continue;
+        if (ref < 0) {
+            str_query(w, ~ref, q, n);
+        } else {
+            if (*n == w->cand_cap) {
+                w->cand_cap = w->cand_cap ? w->cand_cap * 2 : 64;
+                w->cand = xrealloc(w->cand, (size_t)w->cand_cap * sizeof *w->cand);
+            }
+            w->cand[(*n)++] = w->snapshot[ref];
+        }
+    }
 }
 
 Organism *world_check_hit(World *w, Organism *org1)
 {
-    if (!w->grid_valid)
+    if (!w->tree_valid || w->str_root == 0)
         return NULL;
-    double qx0 = org1->r.x, qx1 = (double)org1->r.x + org1->r.width;
-    double qy0 = org1->r.y, qy1 = (double)org1->r.y + org1->r.height;
-    int cx0, cx1, cy0, cy1;
-    cell_range(w, qx0, qx1, qy0, qy1, &cx0, &cx1, &cy0, &cy1);
-    if (++w->stamp == 0)
-        w->stamp = 1;
+    double q[4];
+    env_init(q, org1->r.x, (double)org1->r.x + org1->r.width, org1->r.y,
+             (double)org1->r.y + org1->r.height);
     int n = 0;
-    for (int cy = cy0; cy <= cy1; cy++) {
-        for (int cx = cx0; cx <= cx1; cx++) {
-            int c = cy * w->grid_w + cx;
-            for (int k = w->cell_start[c]; k < w->cell_start[c + 1]; k++) {
-                Organism *o = w->snapshot[w->cell_items[k]];
-                if (o->stamp == w->stamp)
-                    continue;
-                o->stamp = w->stamp;
-                /* JTS Envelope.intersects: inclusive on every side */
-                if (o->env[0] > qx1 || o->env[1] < qx0 || o->env[2] > qy1 || o->env[3] < qy0)
-                    continue;
-                if (n == w->cand_cap) {
-                    w->cand_cap = w->cand_cap ? w->cand_cap * 2 : 64;
-                    w->cand = xrealloc(w->cand, (size_t)w->cand_cap * sizeof *w->cand);
-                }
-                w->cand[n++] = o;
-            }
-        }
-    }
-    if (n > 1)
-        qsort(w->cand, (size_t)n, sizeof *w->cand, cmp_tree_idx);
+    if (env_intersects(w->str_nodes[~w->str_root].env, q))
+        str_query(w, ~w->str_root, q, &n);
     for (int i = 0; i < n; i++) {
         Organism *c = w->cand[i];
         if (c == org1)
@@ -356,7 +433,7 @@ Organism *world_check_hit(World *w, Organism *org1)
 
 void world_time(World *w)
 {
-    build_grid(w);
+    build_tree(w);
     int l = w->norgs;
     for (int i = 0; i < l; i++) {
         Organism *b = w->orgs[i];
@@ -377,7 +454,7 @@ void world_time(World *w)
         }
     }
     w->norgs = k;
-    w->grid_valid = false;
+    w->tree_valid = false;
     w->nframes++;
     if (w->nframes % 256 == 0) {
         w->nframes = 0;

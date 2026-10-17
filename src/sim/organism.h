@@ -75,8 +75,6 @@ typedef struct Organism {
 
     /* world bookkeeping, not part of the Java organism */
     bool removed;    /* out of energy this frame; freed when the frame ends */
-    int tree_idx;    /* position in the collision index built at frame start */
-    unsigned stamp;  /* de-duplicates collision index queries */
     double env[4];   /* frame-start envelope: minx, maxx, miny, maxy */
 } Organism;
 

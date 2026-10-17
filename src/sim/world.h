@@ -18,10 +18,9 @@
 
 /* World.java: the organisms, the atmosphere (O2/CO2) and the frame loop.
  *
- * Collision candidates come from a uniform grid rebuilt every frame from
- * each organism's frame-start bounding box. 0.9 used a JTS STRtree built the
- * same way; the grid returns the same candidate set and visits it in list
- * order (0.8's order) so results do not depend on tree layout.
+ * Collision candidates come from a JTS STRtree rebuilt every frame from each
+ * organism's frame-start bounding box, visited in the tree's order, as 0.9
+ * does (see world.c).
  */
 #ifndef SIM_WORLD_H
 #define SIM_WORLD_H
@@ -42,15 +41,18 @@ typedef struct World {
     double o2, co2;
     WorldStats stats;
 
-    /* collision grid, rebuilt in world_time */
-    int grid_w, grid_h, cell;
-    int *cell_start; /* grid_w*grid_h+1 offsets into cell_items */
-    int *cell_items;
-    int cell_items_cap;
-    Organism **snapshot; /* frame-start list, indexed by Organism.tree_idx */
-    int snapshot_n, snapshot_cap;
-    bool grid_valid;
-    unsigned stamp;
+    /* collision index (JTS STRtree), rebuilt in world_time */
+    Organism **snapshot; /* frame-start list: the tree's items */
+    int snapshot_cap;
+    struct StrNode *str_nodes;
+    int str_nnodes, str_nodes_cap;
+    int *str_kids; /* every node's children: item index >= 0, node ~index < 0 */
+    int str_nkids, str_kids_cap;
+    int str_root;  /* ~index of the root node, 0 for an empty tree */
+    struct StrKey *str_keys; /* sort scratch, and three ref lists */
+    int *str_a, *str_b, *str_x;
+    int str_scratch_cap;
+    bool tree_valid;
     Organism **cand;
     int cand_cap;
 

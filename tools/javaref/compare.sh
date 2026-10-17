@@ -3,29 +3,23 @@
 # Copyright (C) 2026 syn990
 # SPDX-License-Identifier: GPL-2.0-or-later (see LICENSE)
 
-# Runs the same seed through the Java original and the C port and reports
-# the first frame where their states differ.
+# Runs the same seed through the shipped Java original and the C port and
+# reports the first frame where their states differ.
 #
-#   tools/javaref/compare.sh [--strict] SEED FRAMES [EVERY]
+#   tools/javaref/compare.sh SEED FRAMES [EVERY]
 #
-# Needs tools/javaref/build/ (fetch.sh) and ./syn-biogenesis-headless, or
-# with --strict build-strict/ and ./syn-biogenesis-strict (make strict).
+# Needs tools/javaref/build/ (fetch.sh) and ./syn-biogenesis-headless.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 jbuild="$here/build"
 cbin="$root/syn-biogenesis-headless"
-if [ "${1:-}" = --strict ]; then
-	jbuild="$here/build-strict"
-	cbin="$root/syn-biogenesis-strict"
-	shift
-fi
 seed=$1
 frames=$2
 every=${3:-1}
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-java -cp "$jbuild/classes:$jbuild/jts.jar" biogenesis.Harness "$seed" "$frames" "$tmp/java.txt" "$every"
+java -cp "$jbuild/classes:$jbuild/biogenesis.jar:$jbuild/jts.jar" biogenesis.Harness "$seed" "$frames" "$tmp/java.txt" "$every"
 "$cbin" --headless --defaults --quiet --seed "$seed" --frames "$frames" \
 	--every "$every" --dump "$tmp/c.txt"
 if cmp -s "$tmp/java.txt" "$tmp/c.txt"; then

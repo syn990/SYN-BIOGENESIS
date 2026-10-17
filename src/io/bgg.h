@@ -31,5 +31,7 @@ bool bgg_write(const char *path, const GeneticCode *gc);
 GeneticCode *bgg_read(const char *path, char *err, size_t errn);
 /* Parse from memory (used by tests). */
 GeneticCode *bgg_parse(const char *xml, size_t len, char *err, size_t errn);
+/* Double.parseDouble: the same strings accepted, the same value. */
+bool bgg_parse_java_double(const char *s, double *out);
 
 #endif

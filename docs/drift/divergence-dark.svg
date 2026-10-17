@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="440" viewBox="0 0 820 440" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>When does a seed's world part from the Java original's for good?</title>
+<rect x="0.5" y="0.5" width="819" height="439" rx="8" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<text x="24" y="34" font-size="16" font-weight="600" fill="#f0efec">When does a seed's world part from the Java original's for good?</text>
+<text x="24" y="56" font-size="13" fill="#c3c2b7">Share of 100 seeds (1 to 100) whose state never matches Java 27's again, by frame, over 20,000 frames</text>
+<line x1="24" y1="74" x2="42" y2="74" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<text x="48.0" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">SYN-BIOGENESIS, C library maths</text>
+<line x1="290.1" y1="74" x2="308.1" y2="74" stroke="#d55181" stroke-width="2" stroke-linecap="round"/>
+<text x="314.1" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">Java 27, fdlibm maths</text>
+<line x1="485.20000000000005" y1="74" x2="503.20000000000005" y2="74" stroke="#c98500" stroke-width="2" stroke-linecap="round"/>
+<text x="509.2" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">Java 8</text>
+<line x1="573.8000000000001" y1="74" x2="591.8000000000001" y2="74" stroke="#d95926" stroke-width="2" stroke-linecap="round"/>
+<text x="597.8" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">SYN-BIOGENESIS</text>
+<line x1="64" y1="392.0" x2="796" y2="392.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="396.0" font-size="11" fill="#898781" text-anchor="end">0%</text>
+<line x1="64" y1="318.0" x2="796" y2="318.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="322.0" font-size="11" fill="#898781" text-anchor="end">25%</text>
+<line x1="64" y1="244.0" x2="796" y2="244.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="248.0" font-size="11" fill="#898781" text-anchor="end">50%</text>
+<line x1="64" y1="170.0" x2="796" y2="170.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="174.0" font-size="11" fill="#898781" text-anchor="end">75%</text>
+<line x1="64" y1="96.0" x2="796" y2="96.0" stroke="#2c2c2a" stroke-width="1"/>
+<text x="56.0" y="100.0" font-size="11" fill="#898781" text-anchor="end">100%</text>
+<line x1="64" y1="392.0" x2="796" y2="392.0" stroke="#383835" stroke-width="1"/>
+<text x="64.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">0</text>
+<text x="247.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">5K</text>
+<text x="430.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">10K</text>
+<text x="613.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">15K</text>
+<text x="796.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">20K</text>
+<text x="430.0" y="428.0" font-size="12" fill="#c3c2b7" text-anchor="middle">frame</text>
+<text transform="translate(16 244.0) rotate(-90)" font-size="12" fill="#c3c2b7" text-anchor="middle">seeds parted (%)</text>
+<path d="M64.0,392.0H66.9V389.0H91.3V386.1H91.8V383.1H92.3V380.2H92.4V377.2H92.8V374.2H93.8V371.3H95.5V368.3H96.1V365.4H96.1V362.4H96.2V359.4H98.1V356.5H100.1V353.5H101.2V350.6H102.0V347.6H102.6V344.6H104.5V341.7H107.0V338.7H109.5V335.8H110.2V332.8H111.0V329.8H112.5V326.9H113.7V323.9H115.3V321.0H116.1V318.0H117.6V315.0H118.6V312.1H119.0V309.1H119.3V306.2H120.2V303.2H120.7V300.2H120.8V297.3H122.0V294.3H122.6V291.4H123.8V288.4H126.1V285.4H126.9V282.5H127.1V279.5H127.5V276.6H129.5V273.6H129.6V270.6H132.2V267.7H132.8V264.7H132.9V261.8H134.3V258.8H136.5V255.8H137.9V252.9H138.0V249.9H140.7V247.0H144.4V244.0H144.6V241.0H144.9V238.1H148.1V235.1H148.7V232.2H151.4V229.2H154.4V226.2H155.0V223.3H158.9V220.3H161.8V217.4H163.2V214.4H163.4V211.4H163.7V208.5H164.7V205.5H165.6V202.6H167.0V199.6H167.0V196.6H172.1V193.7H172.9V190.7H173.4V187.8H178.6V184.8H183.1V181.8H186.1V178.9H188.6V175.9H190.2V173.0H199.1V170.0H203.0V167.0H204.6V164.1H213.1V161.1H217.3V158.2H226.7V155.2H228.7V152.2H235.8V149.3H238.8V146.3H238.9V143.4H241.0V140.4H250.4V137.4H253.8V134.5H263.4V131.5H287.0V128.6H288.6V125.6H301.8V122.6H304.9V119.7H311.5V116.7H318.1V113.8H336.4V110.8H409.7V107.8H523.4V104.9H544.7V101.9H680.7V99.0H744.8V96.0H796.0V96.0" fill="none" stroke="#199e70" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M64.0,392.0H64.9V389.0H65.2V386.1H65.2V383.1H65.3V380.2H66.8V377.2H66.9V374.2H66.9V371.3H67.0V368.3H68.4V365.4H69.2V362.4H69.3V359.4H70.5V356.5H72.2V353.5H72.6V350.6H73.0V347.6H77.3V344.6H77.8V341.7H78.0V338.7H81.2V335.8H81.4V332.8H82.6V329.8H83.0V326.9H85.6V323.9H88.6V321.0H88.9V318.0H89.6V315.0H91.5V312.1H94.2V309.1H95.1V306.2H96.1V303.2H96.6V300.2H97.7V297.3H98.4V294.3H98.5V291.4H98.8V288.4H99.0V285.4H99.1V282.5H99.6V279.5H99.8V276.6H100.6V273.6H100.8V270.6H102.8V267.7H103.1V264.7H104.1V261.8H104.6V258.8H105.1V255.8H105.7V252.9H105.8V249.9H108.3V247.0H108.9V244.0H111.5V241.0H115.1V238.1H116.0V235.1H118.2V232.2H118.8V229.2H121.5V226.2H124.8V223.3H133.3V220.3H134.7V217.4H137.2V214.4H138.8V211.4H139.5V208.5H140.2V205.5H141.0V202.6H141.9V199.6H147.0V196.6H147.2V193.7H147.7V190.7H157.1V187.8H158.4V184.8H160.5V181.8H161.1V178.9H162.8V175.9H187.5V173.0H197.6V170.0H209.7V167.0H221.5V164.1H225.0V161.1H232.6V158.2H242.9V155.2H273.9V152.2H277.4V149.3H293.4V146.3H298.7V143.4H303.3V140.4H303.8V137.4H320.2V134.5H338.0V131.5H339.0V128.6H356.9V125.6H426.8V122.6H430.4V119.7H480.4V116.7H510.0V113.8H570.6V110.8H641.7V107.8H738.6V104.9H796.0V104.9" fill="none" stroke="#d55181" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M64.0,392.0H90.2V389.0H96.1V386.1H102.3V383.1H102.6V380.2H106.6V377.2H106.9V374.2H107.0V371.3H108.0V368.3H108.8V365.4H115.8V362.4H117.6V359.4H122.8V356.5H125.6V353.5H131.9V350.6H132.8V347.6H132.9V344.6H134.1V341.7H135.6V338.7H139.6V335.8H143.0V332.8H144.7V329.8H146.5V326.9H148.1V323.9H151.4V321.0H158.9V318.0H159.9V315.0H169.0V312.1H169.2V309.1H179.3V306.2H200.7V303.2H207.4V300.2H213.1V297.3H213.8V294.3H226.2V291.4H226.7V288.4H239.1V285.4H239.8V282.5H241.0V279.5H242.5V276.6H251.4V273.6H254.6V270.6H271.2V267.7H331.2V264.7H336.4V261.8H350.8V258.8H735.1V255.8H796.0V255.8" fill="none" stroke="#c98500" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="792.0" y="88.0" font-size="11" fill="#f0efec" text-anchor="end">100 of 100</text>
+<text x="792.0" y="120.9" font-size="11" fill="#f0efec" text-anchor="end">97 of 100</text>
+<text x="792.0" y="247.8" font-size="11" fill="#f0efec" text-anchor="end">46 of 100</text>
+<path d="M64.0,392.0L796.0,392.0" fill="none" stroke="#d95926" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="792.0" y="384.0" font-size="11" fill="#f0efec" text-anchor="end">SYN-BIOGENESIS, Java 11, Java 17, Java 21: 0 of 100, never differ</text>
+</svg>

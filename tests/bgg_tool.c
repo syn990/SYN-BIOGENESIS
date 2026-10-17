@@ -16,7 +16,8 @@
 
 /* C side of tools/javaref/BggInterop.java:
  *   bgg_tool write DIR SEED N   N random codes (same java.util.Random stream)
- *   bgg_tool read FILE...       parse and print in the same canonical form */
+ *   bgg_tool read FILE...       parse and print each in the same canonical form,
+ *                               or "reject" */
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,8 +53,8 @@ int main(int argc, char **argv)
         char err[256];
         GeneticCode *gc = bgg_read(argv[k], err, sizeof err);
         if (!gc) {
-            fprintf(stderr, "%s: %s\n", argv[k], err);
-            return 1;
+            printf("reject\n");
+            continue;
         }
         printf("%d %d %d %d", gc->symmetry, gc->mirror, gc->disperse_children ? 1 : 0,
                gc->ngenes);

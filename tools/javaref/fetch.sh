@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later (see LICENSE)
 
 # Downloads the Biogenesis 0.9 sources and jar from SourceForge into
-# tools/javaref/download/ and builds the reference (see build.sh).
+# tools/javaref/download/ and builds the reference (see build.sh). The
+# source is for reading; the reference runs the jar.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 dl="$here/download"
@@ -17,5 +18,14 @@ mkdir -p "$dl/src" "$dl/jar"
 unzip -q -o "$dl/src.zip" -d "$dl/src"
 unzip -q -o "$dl/jar.zip" -d "$dl/jar"
 unzip -q -o "$dl/jar/0_9 (vanilla)/biogenesis.jar" jts-core-1.15.0.jar -d "$dl"
-"$here/build.sh" "$dl/src/src/biogenesis" "$dl/jts-core-1.15.0.jar"
-"$here/build.sh" --strict "$dl/src/src/biogenesis" "$dl/jts-core-1.15.0.jar"
+# The genetic codes in the Biogenesis gallery (https://biogenesis.sourceforge.net/
+# gallery.en.php), from the Internet Archive: that site refuses scripted downloads
+mkdir -p "$dl/gallery"
+for f in month/month gallery/1 gallery/2 gallery/3 gallery/4 gallery/5 gallery/6 gallery/7 \
+	gallery/8 gallery/1.old gallery/2.old gallery/3.old gallery/4.old gallery/5.old gallery/6.old; do
+	out="$dl/gallery/$(echo "$f" | tr / _).bgg"
+	[ -f "$out" ] || curl -fsSL -o "$out" \
+		"https://web.archive.org/web/2024id_/https://biogenesis.sourceforge.net/$f.bgg" ||
+		echo "could not fetch $f.bgg" >&2
+done
+"$here/build.sh" "$dl/jar/0_9 (vanilla)/biogenesis.jar" "$dl/jts-core-1.15.0.jar"
