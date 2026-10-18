@@ -210,6 +210,7 @@ GeneticCode *gc_new_mutated(const GeneticCode *parent)
         gc->disperse_children = parent->disperse_children;
     gc_calculate_reproduce_energy(gc);
     gc->max_age = P.max_age;
+    gc->lineage = parent->lineage;
     return gc;
 }
 

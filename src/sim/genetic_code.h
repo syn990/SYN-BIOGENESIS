@@ -61,6 +61,9 @@ typedef struct {
 
 typedef struct GeneticCode {
     int refs;
+    /* Set by tools to follow a code's descendants (tools/being): a mutated
+     * child keeps its parent's mark. No effect on the simulation. */
+    uint32_t lineage;
     int symmetry; /* 1..8 */
     int mirror;   /* 0 or 1 */
     bool disperse_children;

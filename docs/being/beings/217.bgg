@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE genetic_code [
+<!ELEMENT genetic_code (gene+)>
+<!ATTLIST genetic_code symmetry (1|2|3|4|5|6|7|8) #REQUIRED>
+<!ATTLIST genetic_code mirror (yes|no) #REQUIRED>
+<!ATTLIST genetic_code disperse (yes|no) #REQUIRED>
+<!ELEMENT gene EMPTY>
+<!ATTLIST gene length CDATA #REQUIRED>
+<!ATTLIST gene theta CDATA #REQUIRED>
+<!ATTLIST gene color (red|green|blue|cyan|yellow|gray|white) #REQUIRED>
+]>
+<genetic_code symmetry="5" mirror="no" disperse="yes">
+	<gene length="3.6400971796253643" theta="2.554035527010082" color="cyan" />
+	<gene length="11.51202663158729" theta="1.5589821094818304" color="green" />
+	<gene length="11.587330701142832" theta="5.923624514872875" color="green" />
+	<gene length="17.448013865477478" theta="5.159796915891708" color="green" />
+	<gene length="9.180515652482132" theta="0.5902229752330184" color="green" />
+</genetic_code>

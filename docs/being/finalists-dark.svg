@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="442" viewBox="0 0 820 442" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>The last round</title>
+<rect x="0.5" y="0.5" width="819" height="441" rx="8" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<text x="24" y="34" font-size="16" font-weight="600" fill="#f0efec">The last round</text>
+<text x="24" y="56" font-size="13" fill="#c3c2b7">Mean living lineage per import in syn1.sbw, 24 imports, 20,000 frames</text>
+<line x1="64.0" y1="96" x2="64.0" y2="394" stroke="#2c2c2a" stroke-width="1"/>
+<text x="64.0" y="410.0" font-size="11" fill="#898781" text-anchor="middle">0</text>
+<line x1="238.3" y1="96" x2="238.3" y2="394" stroke="#2c2c2a" stroke-width="1"/>
+<text x="238.3" y="410.0" font-size="11" fill="#898781" text-anchor="middle">20</text>
+<line x1="412.6" y1="96" x2="412.6" y2="394" stroke="#2c2c2a" stroke-width="1"/>
+<text x="412.6" y="410.0" font-size="11" fill="#898781" text-anchor="middle">40</text>
+<line x1="586.9" y1="96" x2="586.9" y2="394" stroke="#2c2c2a" stroke-width="1"/>
+<text x="586.9" y="410.0" font-size="11" fill="#898781" text-anchor="middle">60</text>
+<text x="56.0" y="121.0" font-size="12" fill="#f0efec" text-anchor="end" font-weight="600">#496</text>
+<path d="M64,112 h487.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-487.6 z" fill="#3987e5"/>
+<text x="561.6" y="125.0" font-size="11" fill="#c3c2b7" text-anchor="start">champion  ·  56.4  ·  88% survived  ·  bred</text>
+<text x="56.0" y="155.0" font-size="12" fill="#f0efec" text-anchor="end">#525</text>
+<path d="M64,146 h442.6 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-442.6 z" fill="#3987e5"/>
+<text x="516.6" y="159.0" font-size="11" fill="#c3c2b7" text-anchor="start">51.2  ·  92% survived  ·  bred</text>
+<text x="56.0" y="189.0" font-size="12" fill="#f0efec" text-anchor="end">#532</text>
+<path d="M64,180 h412.5 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-412.5 z" fill="#3987e5"/>
+<text x="486.5" y="193.0" font-size="11" fill="#c3c2b7" text-anchor="start">47.8  ·  71% survived  ·  bred</text>
+<text x="56.0" y="223.0" font-size="12" fill="#f0efec" text-anchor="end">#554</text>
+<path d="M64,214 h409.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-409.9 z" fill="#3987e5"/>
+<text x="483.9" y="227.0" font-size="11" fill="#c3c2b7" text-anchor="start">47.5  ·  83% survived  ·  bred</text>
+<text x="56.0" y="257.0" font-size="12" fill="#f0efec" text-anchor="end">#543</text>
+<path d="M64,248 h297.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-297.7 z" fill="#3987e5"/>
+<text x="371.7" y="261.0" font-size="11" fill="#c3c2b7" text-anchor="start">34.6  ·  79% survived  ·  bred</text>
+<text x="56.0" y="291.0" font-size="12" fill="#f0efec" text-anchor="end">#555</text>
+<path d="M64,282 h104.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-104.2 z" fill="#3987e5"/>
+<text x="178.2" y="295.0" font-size="11" fill="#c3c2b7" text-anchor="start">12.4  ·  54% survived  ·  bred</text>
+<text x="56.0" y="325.0" font-size="12" fill="#f0efec" text-anchor="end">#417</text>
+<path d="M64,316 h71.9 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-71.9 z" fill="#199e70"/>
+<text x="145.9" y="329.0" font-size="11" fill="#c3c2b7" text-anchor="start">8.7  ·  33% survived  ·  syn1.sbw, rank 3 species</text>
+<text x="56.0" y="359.0" font-size="12" fill="#f0efec" text-anchor="end">#125</text>
+<path d="M64,350 h-3.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h3.0 z" fill="#199e70"/>
+<text x="71.0" y="363.0" font-size="11" fill="#c3c2b7" text-anchor="start">0.0  ·  0% survived  ·  natural champion</text>
+<text x="56.0" y="393.0" font-size="12" fill="#f0efec" text-anchor="end">#264</text>
+<path d="M64,384 h-3.0 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h3.0 z" fill="#199e70"/>
+<text x="71.0" y="397.0" font-size="11" fill="#c3c2b7" text-anchor="start">0.0  ·  0% survived  ·  double green star</text>
+<line x1="24" y1="74" x2="42" y2="74" stroke="#3987e5" stroke-width="2" stroke-linecap="round"/>
+<text x="48.0" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">bred in the search</text>
+<line x1="197.8" y1="74" x2="215.8" y2="74" stroke="#199e70" stroke-width="2" stroke-linecap="round"/>
+<text x="221.8" y="78.0" font-size="12" fill="#c3c2b7" text-anchor="start">for comparison</text>
+</svg>

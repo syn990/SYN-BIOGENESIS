@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="392" viewBox="0 0 820 392" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+<title>Standings</title>
+<rect x="0.5" y="0.5" width="819" height="391" rx="8" fill="#1a1a19" stroke="rgba(255,255,255,0.10)"/>
+<text x="24" y="34" font-size="16" font-weight="600" fill="#f0efec">Standings</text>
+<text x="24" y="56" font-size="13" fill="#c3c2b7">Points from every head-to-head game (a win 1, a draw 1/2), and free-for-all battles won of 6</text>
+<line x1="64.0" y1="80" x2="64.0" y2="344" stroke="#2c2c2a"/>
+<text x="64.0" y="360.0" font-size="11" fill="#898781" text-anchor="middle">0</text>
+<line x1="308.0" y1="80" x2="308.0" y2="344" stroke="#2c2c2a"/>
+<text x="308.0" y="360.0" font-size="11" fill="#898781" text-anchor="middle">20</text>
+<line x1="552.0" y1="80" x2="552.0" y2="344" stroke="#2c2c2a"/>
+<text x="552.0" y="360.0" font-size="11" fill="#898781" text-anchor="middle">40</text>
+<line x1="796.0" y1="80" x2="796.0" y2="344" stroke="#2c2c2a"/>
+<text x="796.0" y="360.0" font-size="11" fill="#898781" text-anchor="middle">60</text>
+<text x="56.0" y="105.0" font-size="12" fill="#f0efec" text-anchor="end">#543</text>
+<path d="M64,96 h429.1 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-429.1 z" fill="#3987e5"/>
+<text x="503.1" y="109.0" font-size="11" fill="#c3c2b7" text-anchor="start">35.5 of 42  ·  free-for-all 1 of 6</text>
+<text x="56.0" y="139.0" font-size="12" fill="#f0efec" text-anchor="end">#554</text>
+<path d="M64,130 h343.7 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-343.7 z" fill="#3987e5"/>
+<text x="417.7" y="143.0" font-size="11" fill="#c3c2b7" text-anchor="start">28.5 of 42  ·  free-for-all 2 of 6</text>
+<text x="56.0" y="173.0" font-size="12" fill="#f0efec" text-anchor="end">#525</text>
+<path d="M64,164 h325.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-325.4 z" fill="#3987e5"/>
+<text x="399.4" y="177.0" font-size="11" fill="#c3c2b7" text-anchor="start">27 of 42  ·  free-for-all 1 of 6</text>
+<text x="56.0" y="207.0" font-size="12" fill="#f0efec" text-anchor="end">#532</text>
+<path d="M64,198 h325.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-325.4 z" fill="#3987e5"/>
+<text x="399.4" y="211.0" font-size="11" fill="#c3c2b7" text-anchor="start">27 of 42  ·  free-for-all 0 of 6</text>
+<text x="56.0" y="241.0" font-size="12" fill="#f0efec" text-anchor="end" font-weight="600">#496</text>
+<path d="M64,232 h264.4 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-264.4 z" fill="#3987e5"/>
+<text x="338.4" y="245.0" font-size="11" fill="#c3c2b7" text-anchor="start">champion  ·  22 of 42  ·  free-for-all 1 of 6</text>
+<text x="56.0" y="275.0" font-size="12" fill="#f0efec" text-anchor="end">#555</text>
+<path d="M64,266 h130.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-130.2 z" fill="#3987e5"/>
+<text x="204.2" y="279.0" font-size="11" fill="#c3c2b7" text-anchor="start">11 of 42  ·  free-for-all 0 of 6</text>
+<text x="56.0" y="309.0" font-size="12" fill="#f0efec" text-anchor="end">#417</text>
+<path d="M64,300 h130.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-130.2 z" fill="#3987e5"/>
+<text x="204.2" y="313.0" font-size="11" fill="#c3c2b7" text-anchor="start">11 of 42  ·  free-for-all 0 of 6</text>
+<text x="56.0" y="343.0" font-size="12" fill="#f0efec" text-anchor="end">#125</text>
+<path d="M64,334 h69.2 a4,4 0 0 1 4,4 v10 a4,4 0 0 1 -4,4 h-69.2 z" fill="#3987e5"/>
+<text x="143.2" y="347.0" font-size="11" fill="#c3c2b7" text-anchor="start">6 of 42  ·  free-for-all 0 of 6</text>
+</svg>

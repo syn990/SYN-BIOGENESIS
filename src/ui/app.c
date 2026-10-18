@@ -1006,13 +1006,29 @@ static void frame(App *a)
  * SYN_BIOGENESIS_SHOT_SIM simulation frames), optionally with a window open
  * (SYN_BIOGENESIS_SHOT_UI = lab | stats | params | about | file | select),
  * saves the screen and exits. Lets the UI be checked under the offscreen
- * video driver. */
+ * video driver.
+ * SYN_BIOGENESIS_SHOT_LOAD=world.bgw|.sbw loads a world first, and
+ * SYN_BIOGENESIS_SHOT_VIEW=x,y,zoom centres the view there. */
 static void shot_prepare(App *a, const char *ui)
 {
+    const char *load = getenv("SYN_BIOGENESIS_SHOT_LOAD");
+    if (load) {
+        char err[256];
+        if (!(bgw_sniff(load) ? bgw_load(&a->world, load, err, sizeof err)
+                              : worldfile_load(&a->world, load, err, sizeof err)))
+            fprintf(stderr, "%s: %s\n", load, err);
+        wv_clamp(&a->view, &a->world);
+    }
     const char *sim = getenv("SYN_BIOGENESIS_SHOT_SIM");
     long n = sim ? strtol(sim, NULL, 10) : 0;
     for (long i = 0; i < n; i++)
         world_time(&a->world);
+    double vx, vy, vz;
+    const char *view = getenv("SYN_BIOGENESIS_SHOT_VIEW");
+    if (view && sscanf(view, "%lf,%lf,%lf", &vx, &vy, &vz) == 3) {
+        a->view.zoom = vz;
+        wv_center_on(&a->view, &a->world, vx, vy);
+    }
     if (!ui)
         return;
     Organism *best = NULL;

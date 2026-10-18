@@ -337,6 +337,23 @@ modern HotSpot computes on x86_64. A saved world (`.bgw` or `.sbw`) holds
 every organism's exact state but not the random-number stream, which
 neither program saves, so a loaded world takes a new path from there.
 
+## The ultimate being
+
+A fast, exact simulation can play the game for you. [`docs/being/`](docs/being/README.md)
+is a tournament run on it to find the best genetic code to import into a
+world in play.
+- **Scale:** 572 codes, 9,292 imports and about 172 million frames, which
+  is roughly 100 days of play.
+- **The champion, #496:** a seven-armed plant armoured with blue. Imported
+  once into that world at 24 spots it had never seen, its line was alive
+  20,000 frames later at 21 of them.
+
+The page also has:
+- every competitor, and the tournament as a graph in the SYN-OS theme
+- battles between the finalists under a battle protocol that replays
+  exactly, the start of a planned tournament mode
+- every code, ready for the window's **Import**
+
 ## Build and run
 
 Needs a C compiler, SDL2, SDL2_ttf and SDL2_image (on Arch:
@@ -412,6 +429,7 @@ tests/          make test
 tools/javaref/  the Java reference: runs the shipped jar headless
 tools/jvmlibm/  translates HotSpot's sin/cos/pow into jvm_libm_x86_64.S
 tools/drift/    the drift study and its charts (docs/drift/)
+tools/being/    the being search, the battles and their charts (docs/being/)
 ```
 
 ```sh
@@ -430,8 +448,9 @@ make test
   by both programs
 - worlds saved by the jar and by the port, compared byte for byte, loaded
   by the other and continued
-- the frame-by-frame comparison with the shipped jar The Java parts are
-skipped without a JDK. The reference runs the jar's own classes, not
+- the frame-by-frame comparison with the shipped jar
+
+The Java parts are skipped without a JDK. The reference runs the jar's own classes, not
 recompiled and not patched. Only the Swing classes they call into are
 replaced with no-op stand-ins, so they run without a window.
 
@@ -444,7 +463,11 @@ environment variables (see `shot_prepare` and `Script` in `src/ui/app.c`):
 ```sh
 SDL_VIDEODRIVER=offscreen SYN_BIOGENESIS_SHOT=out.png SYN_BIOGENESIS_SHOT_SIM=3000 ./syn-biogenesis 42
 SDL_VIDEODRIVER=offscreen SYN_BIOGENESIS_SCRIPT="wait 5; click 300 300 r; click 340 344; shot a.png; quit" ./syn-biogenesis
+SDL_VIDEODRIVER=offscreen SYN_BIOGENESIS_SHOT=out.png SYN_BIOGENESIS_SHOT_LOAD=world.bgw SYN_BIOGENESIS_SHOT_VIEW=1500,1000,1.5 ./syn-biogenesis
 ```
+
+`SHOT_LOAD` opens a saved world (`.sbw` or `.bgw`) and `SHOT_VIEW` centres
+the view on x,y at a zoom.
 
 ## Credits
 

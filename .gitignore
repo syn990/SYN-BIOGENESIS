@@ -13,7 +13,12 @@
 /tools/jvmlibm/download/
 /tools/drift/build/
 /tools/drift/jdk/
+/tools/being/being
+/tools/being/build/
 *.sbw
 *.bgg
 gmon.out
+__pycache__/
 !/tests/bgg_cases/*.bgg
+!/docs/being/*.bgg
+!/docs/being/beings/*.bgg

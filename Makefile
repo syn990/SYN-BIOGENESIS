@@ -30,7 +30,7 @@ HEADLESS_OBJ = $(patsubst src/%.c,obj/headless/%.o,$(CORE_SRC)) $(MATH_OBJ)
 
 LIBC_OBJ = $(patsubst src/%.c,obj/libc/%.o,$(CORE_SRC)) $(MATH_OBJ)
 
-.PHONY: all headless libc test clean
+.PHONY: all headless libc being test clean
 
 all: syn-biogenesis
 
@@ -97,6 +97,12 @@ tests/num_check: tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 tests/bgw_fuzz: tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+# The being search (tools/being)
+being: tools/being/being
+
+tools/being/being: tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
+
 # File format checks, the java.awt geometry against the JVM, and the
 # frame-by-frame comparison with the Java original (the last two need a
 # JDK; see tools/javaref/README.md).
@@ -105,6 +111,7 @@ test: syn-biogenesis-headless tests/geom_check tests/sim_check tests/bgg_tool te
 
 clean:
 	rm -rf obj syn-biogenesis syn-biogenesis-headless syn-biogenesis-headless-libc tests/geom_check \
-		tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz
+		tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz \
+		tools/being/being
 
 -include $(OBJ:.o=.d) $(HEADLESS_OBJ:.o=.d) $(LIBC_OBJ:.o=.d)

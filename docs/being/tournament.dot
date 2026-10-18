@@ -1,0 +1,147 @@
+digraph tournament {
+  graph [rankdir=LR, bgcolor="#000000", fontcolor="#ffffff", fontname="sans", fontsize=22, nodesep=0.12, ranksep=0.9, pad=0.4, labelloc=t, label="The being search  ·  SYN-OS-M141\n\n"];
+  node [shape=plain, fontname="sans", fontcolor="#ffffff", fontsize=11];
+  edge [color="#555555", arrowsize=0.5, penwidth=0.8];
+  subgraph cluster_sources { label="candidates"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+    src_natural [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="215 natural champions (3,000,000-frame evolutions)"];
+    src_world [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="48 winners of the training worlds"];
+    src_design [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="12 designs"];
+    src_random [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="20 random codes"];
+  }
+  screened_out [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="279 screened out"];
+  src_natural -> screened_out [style=dashed];
+  src_world -> screened_out [style=dashed];
+  src_design -> screened_out [style=dashed];
+  src_random -> screened_out [style=dashed];
+  subgraph cluster_top { label="passed screening"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n125 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="125.png"/></TD></TR><TR><TD><B>finalist  #125</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 14, frame 2,500,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (your world)</FONT></TD></TR></TABLE>>];
+  n50 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="50.png"/></TD></TR><TR><TD><B>#50</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 2,250,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">15.5 lineage · 44% alive (training)</FONT></TD></TR></TABLE>>];
+  n58 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="58.png"/></TD></TR><TR><TD><B>#58</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 250,000, rank 3</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">23.4 lineage · 44% alive (training)</FONT></TD></TR></TABLE>>];
+  n10 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="10.png"/></TD></TR><TR><TD><B>#10</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 11, frame 1,750,000, rank 3</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">19.0 lineage · 50% alive (training)</FONT></TD></TR></TABLE>>];
+  n51 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="51.png"/></TD></TR><TR><TD><B>#51</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 2,250,000, rank 2</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">13.2 lineage · 44% alive (training)</FONT></TD></TR></TABLE>>];
+  n87 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="87.png"/></TD></TR><TR><TD><B>#87</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 13, frame 2,250,000, rank 2</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">8.9 lineage · 22% alive (training)</FONT></TD></TR></TABLE>>];
+  n110 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="110.png"/></TD></TR><TR><TD><B>#110</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 14, frame 1,250,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">7.5 lineage · 22% alive (training)</FONT></TD></TR></TABLE>>];
+  n98 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="98.png"/></TD></TR><TR><TD><B>#98</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 13, frame 3,000,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">26.3 lineage · 91% alive (training)</FONT></TD></TR></TABLE>>];
+  n172 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="172.png"/></TD></TR><TR><TD><B>#172</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 15, frame 3,000,000, rank 3</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">30.1 lineage · 94% alive (training)</FONT></TD></TR></TABLE>>];
+  n116 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="116.png"/></TD></TR><TR><TD><B>#116</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 14, frame 1,750,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">11.1 lineage · 34% alive (training)</FONT></TD></TR></TABLE>>];
+  n57 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="57.png"/></TD></TR><TR><TD><B>#57</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 250,000, rank 2</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">7.3 lineage · 25% alive (training)</FONT></TD></TR></TABLE>>];
+  n251 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="251.png"/></TD></TR><TR><TD><B>#251</B></TD></TR><TR><TD><FONT POINT-SIZE="9">world 7 at 30,000 frames, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">3.8 lineage · 12% alive (training)</FONT></TD></TR></TABLE>>];
+  n262 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="262.png"/></TD></TR><TR><TD><B>#262</B></TD></TR><TR><TD><FONT POINT-SIZE="9">world 8 at 120,000 frames, rank 3</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">10.8 lineage · 19% alive (training)</FONT></TD></TR></TABLE>>];
+  n192 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="192.png"/></TD></TR><TR><TD><B>#192</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 16, frame 2,000,000, rank 2</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">24.2 lineage · 91% alive (training)</FONT></TD></TR></TABLE>>];
+  n47 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="47.png"/></TD></TR><TR><TD><B>#47</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 2,000,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">27.2 lineage · 91% alive (training)</FONT></TD></TR></TABLE>>];
+  n56 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="56.png"/></TD></TR><TR><TD><B>#56</B></TD></TR><TR><TD><FONT POINT-SIZE="9">evolution 12, frame 250,000, rank 1</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">7.3 lineage · 19% alive (training)</FONT></TD></TR></TABLE>>];
+  }
+  src_natural -> n192 [color="#555555"];
+  src_natural -> n98 [color="#555555"];
+  src_world -> n262 [color="#555555"];
+  src_natural -> n10 [color="#555555"];
+  src_natural -> n172 [color="#555555"];
+  src_natural -> n110 [color="#555555"];
+  src_natural -> n47 [color="#555555"];
+  src_natural -> n50 [color="#555555"];
+  src_natural -> n51 [color="#555555"];
+  src_natural -> n116 [color="#555555"];
+  src_natural -> n87 [color="#555555"];
+  src_natural -> n56 [color="#555555"];
+  src_natural -> n57 [color="#555555"];
+  src_natural -> n58 [color="#555555"];
+  src_world -> n251 [color="#555555"];
+  src_natural -> n125 [color="#555555"];
+  subgraph cluster_p1g1 { label="phase 1, generation 1\nbest child 33.8"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  rest_p1g1 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="24 more bred"];
+  }
+  screened_out -> rest_p1g1 [style=invis, weight=10];
+  subgraph cluster_p1g2 { label="phase 1, generation 2\nbest child 32.5"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n335 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="335.png"/></TD></TR><TR><TD><B>#335</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">32.5 lineage · 91% alive (training)</FONT></TD></TR></TABLE>>];
+  rest_p1g2 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="23 more bred"];
+  }
+  rest_p1g1 -> rest_p1g2 [style=invis, weight=10];
+  n172 -> n335 [style=solid, color="#555555", penwidth=0.8];
+  subgraph cluster_p1g3 { label="phase 1, generation 3\nbest child 32.9"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n357 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="357.png"/></TD></TR><TR><TD><B>#357</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">32.8 lineage · 88% alive (training)</FONT></TD></TR></TABLE>>];
+  n358 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="358.png"/></TD></TR><TR><TD><B>#358</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">32.9 lineage · 88% alive (training)</FONT></TD></TR></TABLE>>];
+  rest_p1g3 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="22 more bred"];
+  }
+  rest_p1g2 -> rest_p1g3 [style=invis, weight=10];
+  n335 -> n357 [style=solid, color="#555555", penwidth=0.8];
+  n335 -> n358 [style=solid, color="#555555", penwidth=0.8];
+  subgraph cluster_p1g4 { label="phase 1, generation 4\nbest child 37.4"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n371 [label=<<TABLE BORDER="1" COLOR="#555555" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="371.png"/></TD></TR><TR><TD><B>#371</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">33.8 lineage · 91% alive (training)</FONT></TD></TR></TABLE>>];
+  n382 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="382.png"/></TD></TR><TR><TD><B>finalist  #382</B></TD></TR><TR><TD><FONT POINT-SIZE="9">crossover+mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  n385 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="385.png"/></TD></TR><TR><TD><B>finalist  #385</B></TD></TR><TR><TD><FONT POINT-SIZE="9">crossover+mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  rest_p1g4 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="21 more bred"];
+  }
+  rest_p1g3 -> rest_p1g4 [style=invis, weight=10];
+  n357 -> n371 [style=solid, color="#555555", penwidth=0.8];
+  n358 -> n382 [style=dashed, color="#555555", penwidth=0.8];
+  n358 -> n382 [style=dashed, color="#555555", penwidth=0.8];
+  n357 -> n385 [style=dashed, color="#555555", penwidth=0.8];
+  n335 -> n385 [style=dashed, color="#555555", penwidth=0.8];
+  subgraph cluster_p1g5 { label="phase 1, generation 5\nbest child 41.5"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n401 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="401.png"/></TD></TR><TR><TD><B>finalist  #401</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  n403 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="403.png"/></TD></TR><TR><TD><B>finalist  #403</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  n406 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="406.png"/></TD></TR><TR><TD><B>finalist  #406</B></TD></TR><TR><TD><FONT POINT-SIZE="9">crossover+mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  n407 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="407.png"/></TD></TR><TR><TD><B>finalist  #407</B></TD></TR><TR><TD><FONT POINT-SIZE="9">crossover+mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">0.0 lineage · 0% survived (phase 2)</FONT></TD></TR></TABLE>>];
+  rest_p1g5 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="20 more bred"];
+  }
+  rest_p1g4 -> rest_p1g5 [style=invis, weight=10];
+  n385 -> n401 [style=solid, color="#555555", penwidth=0.8];
+  n385 -> n403 [style=solid, color="#555555", penwidth=0.8];
+  n357 -> n406 [style=dashed, color="#555555", penwidth=0.8];
+  n371 -> n406 [style=dashed, color="#555555", penwidth=0.8];
+  n385 -> n407 [style=dashed, color="#555555", penwidth=0.8];
+  n382 -> n407 [style=dashed, color="#555555", penwidth=0.8];
+  subgraph cluster_late { label="joining in your world"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+    late_yours [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="your world's 10 commonest species"];
+    late_design [shape=box, style="rounded,filled", fillcolor="#1a0000", color="#555555", label="3 armoured designs"];
+  n417 [label=<<TABLE BORDER="2" COLOR="#e00000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="417.png"/></TD></TR><TR><TD><B>finalist  #417</B></TD></TR><TR><TD><FONT POINT-SIZE="9">syn1.sbw, rank 3</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">8.7 lineage · 33% survived (your world)</FONT></TD></TR></TABLE>>];
+  }
+  rest_p1g5 -> late_yours [style=invis, weight=10];
+  late_yours -> n417 [color="#e00000"];
+  subgraph cluster_p2g1 { label="phase 2, generation 1 (in your world)\nbest child 2.8"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  rest_p2g1 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="18 more bred"];
+  }
+  late_yours -> rest_p2g1 [style=invis, weight=10];
+  subgraph cluster_p2g2 { label="phase 2, generation 2 (in your world)\nbest child 3.1"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  rest_p2g2 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="18 more bred"];
+  }
+  rest_p2g1 -> rest_p2g2 [style=invis, weight=10];
+  subgraph cluster_p2g3 { label="phase 2, generation 3 (in your world)\nbest child 1.5"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  rest_p2g3 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="18 more bred"];
+  }
+  rest_p2g2 -> rest_p2g3 [style=invis, weight=10];
+  subgraph cluster_p2g4 { label="phase 2, generation 4 (in your world)\nbest child 27.0"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n496 [label=<<TABLE BORDER="3" COLOR="#e00000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="496.png"/></TD></TR><TR><TD><B>CHAMPION  #496</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">56.4 lineage · 88% survived (your world)</FONT></TD></TR></TABLE>>];
+  rest_p2g4 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="17 more bred"];
+  }
+  rest_p2g3 -> rest_p2g4 [style=invis, weight=10];
+  n417 -> n496 [style=solid, color="#e00000", penwidth=2.2];
+  subgraph cluster_p2g5 { label="phase 2, generation 5 (in your world)\nbest child 3.3"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  rest_p2g5 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="18 more bred"];
+  }
+  rest_p2g4 -> rest_p2g5 [style=invis, weight=10];
+  subgraph cluster_p2g6 { label="phase 2, generation 6 (in your world)\nbest child 46.9"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n525 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="525.png"/></TD></TR><TR><TD><B>finalist  #525</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">51.2 lineage · 92% survived (your world)</FONT></TD></TR></TABLE>>];
+  n532 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="532.png"/></TD></TR><TR><TD><B>finalist  #532</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">47.8 lineage · 71% survived (your world)</FONT></TD></TR></TABLE>>];
+  rest_p2g6 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="16 more bred"];
+  }
+  rest_p2g5 -> rest_p2g6 [style=invis, weight=10];
+  n496 -> n525 [style=solid, color="#555555", penwidth=0.8];
+  n496 -> n532 [style=solid, color="#555555", penwidth=0.8];
+  subgraph cluster_p2g7 { label="phase 2, generation 7 (in your world)\nbest child 16.6"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n543 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="543.png"/></TD></TR><TR><TD><B>finalist  #543</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">34.6 lineage · 79% survived (your world)</FONT></TD></TR></TABLE>>];
+  rest_p2g7 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="17 more bred"];
+  }
+  rest_p2g6 -> rest_p2g7 [style=invis, weight=10];
+  n532 -> n543 [style=solid, color="#555555", penwidth=0.8];
+  subgraph cluster_p2g8 { label="phase 2, generation 8 (in your world)\nbest child 20.9"; fontsize=14; color="#555555"; fontcolor="#ffffff";
+  n554 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="554.png"/></TD></TR><TR><TD><B>finalist  #554</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">47.5 lineage · 83% survived (your world)</FONT></TD></TR></TABLE>>];
+  n555 [label=<<TABLE BORDER="2" COLOR="#4d0000" BGCOLOR="#1a0000" CELLBORDER="0" CELLPADDING="3" CELLSPACING="0"><TR><TD FIXEDSIZE="TRUE" WIDTH="72" HEIGHT="72"><IMG SRC="555.png"/></TD></TR><TR><TD><B>finalist  #555</B></TD></TR><TR><TD><FONT POINT-SIZE="9">mutation</FONT></TD></TR><TR><TD><FONT POINT-SIZE="9" COLOR="#555555">12.4 lineage · 54% survived (your world)</FONT></TD></TR></TABLE>>];
+  rest_p2g8 [shape=box, style="rounded,dashed", color="#555555", fontcolor="#555555", label="16 more bred"];
+  }
+  rest_p2g7 -> rest_p2g8 [style=invis, weight=10];
+  n496 -> n554 [style=solid, color="#555555", penwidth=0.8];
+  n525 -> n555 [style=solid, color="#555555", penwidth=0.8];
+  champion [shape=doubleoctagon, style=filled, fillcolor="#e00000", color="#e00000", fontcolor="#ffffff", fontsize=16, label="the champion\n#496"];
+  n496 -> champion [color="#e00000", penwidth=3];
+}
