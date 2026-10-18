@@ -1,6 +1,5 @@
 /obj/
 /syn-biogenesis
-/syn-biogenesis-headless
 /syn-biogenesis-headless-libc
 /tests/geom_check
 /tests/sim_check
@@ -8,8 +7,13 @@
 /tests/math_check
 /tests/num_check
 /tests/bgw_fuzz
+/tests/history_check
+/tests/history_check_small
+/tests/history_check_colour
+/tests/colour_bgg_tool
 /tools/javaref/download/
 /tools/javaref/build/
+/tools/javaref/colour/build/
 /tools/jvmlibm/download/
 /tools/drift/build/
 /tools/drift/jdk/

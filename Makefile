@@ -25,30 +25,82 @@ UI_SRC = $(wildcard src/ui/*.c)
 MATH_OBJ = obj/fdlibm/e_atan2.o obj/fdlibm/s_atan.o obj/fdlibm/s_fabs.o obj/sim/jvm_libm_x86_64.o
 FDLIBM_RENAME = -D__LITTLE_ENDIAN -D__ieee754_atan2=fd_atan2 -Datan=fd_atan -Dfabs=fd_fabs
 
-OBJ = $(patsubst src/%.c,obj/%.o,$(CORE_SRC) $(UI_SRC)) $(MATH_OBJ)
-HEADLESS_OBJ = $(patsubst src/%.c,obj/headless/%.o,$(CORE_SRC)) $(MATH_OBJ)
-
+# For tools/drift only: the simulation on the C library's maths.
 LIBC_OBJ = $(patsubst src/%.c,obj/libc/%.o,$(CORE_SRC)) $(MATH_OBJ)
 
-.PHONY: all headless libc being test clean
+# The program (make): syn-biogenesis, Biogenesis 0.9 and Color Mod 2.01 in
+# one (src/launcher.c), with or without a window (--headless).
+#
+# Biogenesis 0.9 is its simulation objects as they translate the Java,
+# compiled with nothing else, and the window code compiled with
+# BIO_SYN_EDITION and BIO_SYNOS: the Heritage edition (the original's
+# window, what a first run shows) or SYN-OS, with the SYN edition's world
+# view (src/syn/: navigation, looks, history, statistics) and the SYN-OS
+# interface (src/synos/: themes, skin, main menu, options). Its main is
+# renamed bio_main.
+SYN_SRC = $(wildcard src/syn/*.c) $(wildcard src/synos/*.c)
+SYN_OBJ = $(patsubst src/%.c,obj/%.o,$(filter-out src/main.c,$(CORE_SRC))) $(MATH_OBJ) \
+          $(patsubst src/%.c,obj/edition/%.o,$(UI_SRC) $(SYN_SRC)) obj/aio/main09.o
+# Color Mod 2.01 (COLOUR_OBJ below) goes in as one object in which only its
+# main, renamed colour_main, is visible: its organisms, world and window code
+# have 0.9's names, and stay out of each other's way.
+AIO_OBJ = $(SYN_OBJ) obj/aio/colour.o obj/aio/launcher.o
+LD ?= ld
+OBJCOPY ?= objcopy
+
+# The colour build: Biogenesis Color Mod 2.01 (src/colour/: its simulation
+# translated by tools/colour/) on the faithful build's random numbers,
+# geometry and maths. Its headers come first, so the window code compiles
+# against Color Mod's organisms.
+COLOUR_SRC = $(wildcard src/colour/sim/*.c) src/colour/io/bgw.c src/colour/headless.c \
+             src/colour/main.c
+COLOUR_SHARED_OBJ = obj/sim/jrandom.o obj/sim/jgeom.o obj/io/jser.o $(MATH_OBJ)
+# With the window: the shared widgets, file dialog and world view, Color
+# Mod's own main window, dialogs and file formats, and the SYN edition's
+# view, looks, history, statistics and SYN-OS interface, all compiled
+# against Color Mod's organisms.
+COLOUR_UI_SRC = src/ui/ui.c src/ui/gfx.c src/ui/filedlg.c src/ui/worldview.c \
+                $(wildcard src/colour/ui/*.c) src/colour/io/bgg.c $(SYN_SRC)
+COLOUR_OBJ = $(patsubst src/%.c,obj/colour/%.o,$(COLOUR_SRC) $(COLOUR_UI_SRC)) \
+             $(COLOUR_SHARED_OBJ)
+
+.PHONY: all libc being test clean
 
 all: syn-biogenesis
 
-syn-biogenesis: $(OBJ)
+syn-biogenesis: $(AIO_OBJ)
 	$(CC) -o $@ $^ $(SDL_LIBS) $(LDLIBS)
 
-# No SDL needed: the simulation alone, for benchmarks and the javaref check.
-headless: syn-biogenesis-headless
+obj/aio/main09.o: obj/main.o
+	@mkdir -p $(dir $@)
+	$(OBJCOPY) --redefine-sym main=bio_main $< $@
 
-syn-biogenesis-headless: $(HEADLESS_OBJ)
-	$(CC) -o $@ $^ $(LDLIBS)
+obj/aio/colour.o: $(COLOUR_OBJ)
+	@mkdir -p $(dir $@)
+	$(LD) -r -o $@.all $^
+	$(OBJCOPY) --redefine-sym main=colour_main $@.all
+	$(OBJCOPY) --keep-global-symbol=colour_main $@.all $@
+	rm -f $@.all
 
-# The headless simulation on the C library's sin/cos/pow instead of the
-# JVM's (what builds for other processors use), for tools/drift.
+obj/aio/launcher.o: src/launcher.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -MMD -c -o $@ $<
+
+# A tool build for tools/drift, not the program: the simulation on the C
+# library's sin/cos/pow instead of the JVM's (what builds for other
+# processors use), headless.
 libc: syn-biogenesis-headless-libc
 
 syn-biogenesis-headless-libc: $(LIBC_OBJ)
 	$(CC) -o $@ $^ $(LDLIBS)
+
+obj/colour/%.o: src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -Isrc/colour $(CFLAGS) $(SDL_CFLAGS) -DBIO_COLOUR -DBIO_SYN_EDITION -DBIO_SYNOS -MMD -c -o $@ $<
+
+obj/edition/%.o: src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -DBIO_SYN_EDITION -DBIO_SYNOS -MMD -c -o $@ $<
 
 obj/libc/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -97,6 +149,25 @@ tests/num_check: tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 tests/bgw_fuzz: tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+# the SYN edition's history (src/syn/history.c) beside the simulation; the
+# small build merges its samples and epochs within a short run
+tests/history_check: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
+tests/history_check_small: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
+
+# the colour build's .bgg reader and writer, for tests/colour.sh
+COLOUR_SIM_OBJ = $(patsubst src/%.c,obj/colour/%.o,$(wildcard src/colour/sim/*.c)) $(COLOUR_SHARED_OBJ)
+
+# the same beside Color Mod's simulation (its lines are its clades, its
+# codes kept by its collector)
+tests/history_check_colour: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c \
+                            obj/colour/colour/io/bgw.o $(COLOUR_SIM_OBJ)
+	$(CC) -Isrc/colour $(CFLAGS) -DBIO_COLOUR -DBIO_NO_GUI -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
+tests/colour_bgg_tool: tests/colour_bgg_tool.c src/colour/io/bgg.c $(COLOUR_SIM_OBJ)
+	$(CC) -Isrc/colour $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
+
 # The being search (tools/being)
 being: tools/being/being
 
@@ -106,12 +177,18 @@ tools/being/being: tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
 # File format checks, the java.awt geometry against the JVM, and the
 # frame-by-frame comparison with the Java original (the last two need a
 # JDK; see tools/javaref/README.md).
-test: syn-biogenesis-headless tests/geom_check tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz
-	tests/run.sh
+test: syn-biogenesis tests/geom_check tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz \
+      tests/history_check tests/history_check_small tests/history_check_colour tests/colour_bgg_tool
+	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; [ $$a = 0 ] && [ $$b = 0 ]
 
 clean:
-	rm -rf obj syn-biogenesis syn-biogenesis-headless syn-biogenesis-headless-libc tests/geom_check \
+	rm -rf obj syn-biogenesis syn-biogenesis-headless-libc \
+		tests/geom_check \
 		tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz \
+		tests/history_check tests/history_check_small tests/history_check_colour tests/colour_bgg_tool \
 		tools/being/being
 
--include $(OBJ:.o=.d) $(HEADLESS_OBJ:.o=.d) $(LIBC_OBJ:.o=.d)
+# compile flags live here: a change to them rebuilds what they build
+$(SYN_OBJ) $(COLOUR_OBJ) obj/aio/launcher.o: Makefile
+
+-include $(LIBC_OBJ:.o=.d) $(SYN_OBJ:.o=.d) $(COLOUR_OBJ:.o=.d) obj/aio/launcher.d

@@ -8,12 +8,12 @@
 #
 #   tools/javaref/compare.sh SEED FRAMES [EVERY]
 #
-# Needs tools/javaref/build/ (fetch.sh) and ./syn-biogenesis-headless.
+# Needs tools/javaref/build/ (fetch.sh) and ./syn-biogenesis (make).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 jbuild="$here/build"
-cbin="$root/syn-biogenesis-headless"
+cbin="$root/syn-biogenesis"
 seed=$1
 frames=$2
 every=${3:-1}

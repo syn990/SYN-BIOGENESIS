@@ -14,8 +14,31 @@ trap 'rm -rf "$tmp"' EXIT
 status=0
 
 tests/sim_check "$tmp" || status=1
-./syn-biogenesis-headless --headless --defaults --quiet --seed 3 --frames 1500 \
+./syn-biogenesis --headless --defaults --quiet --seed 3 --frames 1500 \
 	--save "$tmp/fuzz.bgw" && tests/bgw_fuzz "$tmp/fuzz.bgw" 800 || status=1
+
+# the SYN edition's history only reads the world: the same run with and
+# without it hashes and saves the same, and its books add up
+if tests/history_check 40000 42 plain "$tmp/hist_plain.bgw" >"$tmp/hist_plain.txt" &&
+	tests/history_check_small 40000 42 history "$tmp/hist_rec.bgw" >"$tmp/hist_rec.txt" 2>"$tmp/hist.log" &&
+	cmp -s "$tmp/hist_plain.txt" "$tmp/hist_rec.txt" && cmp -s "$tmp/hist_plain.bgw" "$tmp/hist_rec.bgw"; then
+	echo "SYN history: 40000 frames recorded, world and save unchanged; $(cat "$tmp/hist.log")"
+else
+	echo "FAIL SYN history: the recorded run differs, or its books don't add up"
+	cat "$tmp/hist.log"
+	status=1
+fi
+# and beside Color Mod's, with its collector running every frame while it
+# records (the history's codes must stay alive, the rest not matter)
+if tests/history_check_colour 1024 42 plain "$tmp/histc_plain.bgw" >"$tmp/histc_plain.txt" &&
+	tests/history_check_colour 1024 42 history "$tmp/histc_rec.bgw" >"$tmp/histc_rec.txt" 2>"$tmp/histc.log" &&
+	cmp -s "$tmp/histc_plain.txt" "$tmp/histc_rec.txt" && cmp -s "$tmp/histc_plain.bgw" "$tmp/histc_rec.bgw"; then
+	echo "SYN history, Color Mod: 1024 frames recorded, world and save unchanged; $(cat "$tmp/histc.log")"
+else
+	echo "FAIL SYN history, Color Mod: the recorded run differs, or its books don't add up"
+	cat "$tmp/histc.log"
+	status=1
+fi
 
 # .bgg reader cases (tests/bgg_cases): what 0.9 reads from each, or refuses
 n=0
@@ -97,7 +120,7 @@ if [ -f tools/javaref/build/biogenesis.jar ]; then
 	# .bgw: a world saved here is the file 0.9 saves; each program loads
 	# the other's and continues identically; a loaded file saves unchanged
 	cp="tools/javaref/build/classes:tools/javaref/build/biogenesis.jar:tools/javaref/build/jts.jar"
-	headless="./syn-biogenesis-headless --headless --defaults --quiet"
+	headless="./syn-biogenesis --headless --defaults --quiet"
 	n=0
 	bad=0
 	for sf in 1:0 42:5 7:2000 2026:6000; do

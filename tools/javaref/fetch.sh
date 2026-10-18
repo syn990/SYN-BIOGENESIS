@@ -5,7 +5,10 @@
 
 # Downloads the Biogenesis 0.9 sources and jar from SourceForge into
 # tools/javaref/download/ and builds the reference (see build.sh). The
-# source is for reading; the reference runs the jar.
+# source is for reading; the reference runs the jar. Also fetches Color Mod
+# 2.01's source, which tools/colour/translate.py turns into src/colour/sim/,
+# and builds its reference from the Color Mod jar of the same download
+# (colour/build.sh).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 dl="$here/download"
@@ -29,3 +32,13 @@ for f in month/month gallery/1 gallery/2 gallery/3 gallery/4 gallery/5 gallery/6
 		echo "could not fetch $f.bgg" >&2
 done
 "$here/build.sh" "$dl/jar/0_9 (vanilla)/biogenesis.jar" "$dl/jts-core-1.15.0.jar"
+# Color Mod 2.01 with its source. The jar in this zip is the one in the
+# "Mods" download above, byte for byte; the reference runs that one.
+cm=https://downloads.sourceforge.net/project/biogenesis/Color%20Mod/2.0
+[ -f "$dl/colormod-src.zip" ] || curl -fsSL -o "$dl/colormod-src.zip" \
+	"$cm/ColorMod%202_01%20and%20sourcecode.zip"
+rm -rf "$dl/colormod-src"
+mkdir -p "$dl/colormod-src"
+unzip -q -o "$dl/colormod-src.zip" -d "$dl/colormod-src"
+cmp "$dl/colormod-src/ColorMod_2_01/biogenesis.jar" "$dl/jar/ColorMod_2_01/biogenesis.jar"
+"$here/colour/build.sh" "$dl/jar/ColorMod_2_01/biogenesis.jar" "$dl/jts-core-1.15.0.jar"

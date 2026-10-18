@@ -6,7 +6,7 @@
 /* The original's world files, for tests/run.sh: a seeded world (or one
  * loaded from a .bgw, as MainWindow's Open does) runs FRAMES frames,
  * dumping its state like Harness, and is then saved as MainWindow's Save
- * does. The syn-biogenesis-headless options --load and --save do the same.
+ * does. syn-biogenesis --headless with --load and --save does the same.
  *
  *   java ... biogenesis.BgwRun SEED FRAMES DUMP|- [load FILE] [save FILE]
  */

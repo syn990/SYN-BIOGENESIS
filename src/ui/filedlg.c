@@ -23,6 +23,9 @@
 #include <sys/stat.h>
 
 #include "ui/app.h"
+#ifdef BIO_SYNOS
+#include "synos/synos.h"
+#endif
 
 void filedlg_free(FileDialog *d)
 {
@@ -228,6 +231,12 @@ void filedlg_draw(App *a)
             gfx_fill(it, C_HOVER);
         const char *e = d->entries[i];
         bool is_dir = e[strlen(e) - 1] == '/';
+#ifdef BIO_SYNOS
+        /* folders in the theme's accent, which reads on light themes too */
+        if (synos_active())
+            gfx_text(it.x + 6, it.y + 3, e, is_dir ? C_ACCENT : C_TEXT);
+        else
+#endif
         gfx_text(it.x + 6, it.y + 3, e, is_dir ? COL(150, 190, 255) : C_TEXT);
         if (ui_pressed(it, 1)) {
             if (ui_double_clicked() && d->selected == i)

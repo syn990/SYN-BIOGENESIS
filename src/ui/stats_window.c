@@ -24,6 +24,9 @@
 #include <stdlib.h>
 
 #include "ui/app.h"
+#ifdef BIO_SYNOS
+#include "synos/synos.h"
+#endif
 
 void stats_open(App *a)
 {
@@ -183,7 +186,13 @@ void stats_draw(App *a)
     graph(g1, &st->population, st->max_population, 0, COL(255, 255, 255));
     static const char *const n1[] = {"Deaths", "Births", "Population"};
     static const Col c1[] = {{255, 0, 0, 255}, {0, 255, 0, 255}, {255, 255, 255, 255}};
+#ifdef BIO_SYNOS
+    /* the white line's name is on the theme's panel, which can be light */
+    const Col c1_skin[] = {c1[0], c1[1], C_TEXT};
+    legend(g1.x + g1.w + 8, g1.y, n1, synos_active() ? c1_skin : c1, 3);
+#else
     legend(g1.x + g1.w + 8, g1.y, n1, c1, 3);
+#endif
     ui_label_dim(g1.x, g1.y + g1.h + 2, "0");
     ui_label_dim(g1.x + g1.w - gfx_text_w("100"), g1.y + g1.h + 2, "100");
     ry += g1.h + lh + 6;
@@ -211,7 +220,12 @@ void stats_draw(App *a)
     graph(g2, &st->co2, st->max_co2, st->min_co2, COL(255, 255, 255));
     static const char *const n2[] = {"Oxygen", "Carbon dioxide"};
     static const Col c2[] = {{80, 120, 255, 255}, {255, 255, 255, 255}};
+#ifdef BIO_SYNOS
+    const Col c2_skin[] = {c2[0], C_TEXT};
+    legend(g2.x + g2.w + 8, g2.y, n2, synos_active() ? c2_skin : c2, 2);
+#else
     legend(g2.x + g2.w + 8, g2.y, n2, c2, 2);
+#endif
     ry += g2.h + 8;
     char n_a[32], n_b[32];
     fmt_num(n_a, sizeof n_a, st->max_co2);

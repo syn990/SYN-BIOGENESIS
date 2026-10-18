@@ -6,7 +6,7 @@ frame:
 
 | Variant | What it is |
 |---|---|
-| `port` | SYN-BIOGENESIS (`syn-biogenesis-headless`) |
+| `port` | SYN-BIOGENESIS (`syn-biogenesis --headless`) |
 | `port-libc` | SYN-BIOGENESIS on the C library's `sin`/`cos`/`pow` (`make libc`), as on a processor other than x86_64 |
 | `java8`, `java11`, `java17`, `java21` | the same jar on other HotSpot versions (Java 8 from the system, the rest from `fetch-jdks.sh`) |
 | `java27-fdlibm` | the same jar on Java 27 with `-XX:-UseLibmIntrinsic`: `Math` computed by fdlibm, as HotSpot does on processors it has no Intel routines for |

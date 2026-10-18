@@ -23,18 +23,18 @@
 #include <string.h>
 #include <sys/stat.h>
 
-const Col C_BG = {24, 24, 26, 255};
-const Col C_PANEL = {40, 41, 44, 255};
-const Col C_PANEL2 = {52, 53, 57, 255};
-const Col C_BORDER = {78, 80, 86, 255};
-const Col C_TEXT = {226, 226, 228, 255};
-const Col C_TEXT_DIM = {150, 152, 158, 255};
-const Col C_ACCENT = {90, 150, 230, 255};
-const Col C_HOVER = {66, 68, 74, 255};
-const Col C_PRESS = {86, 90, 98, 255};
-const Col C_FIELD = {28, 29, 32, 255};
-const Col C_DISABLED = {96, 98, 104, 255};
-const Col C_ORANGE = {255, 200, 0, 255}; /* java.awt.Color.ORANGE: the selection box */
+GFX_PALETTE Col C_BG = {24, 24, 26, 255};
+GFX_PALETTE Col C_PANEL = {40, 41, 44, 255};
+GFX_PALETTE Col C_PANEL2 = {52, 53, 57, 255};
+GFX_PALETTE Col C_BORDER = {78, 80, 86, 255};
+GFX_PALETTE Col C_TEXT = {226, 226, 228, 255};
+GFX_PALETTE Col C_TEXT_DIM = {150, 152, 158, 255};
+GFX_PALETTE Col C_ACCENT = {90, 150, 230, 255};
+GFX_PALETTE Col C_HOVER = {66, 68, 74, 255};
+GFX_PALETTE Col C_PRESS = {86, 90, 98, 255};
+GFX_PALETTE Col C_FIELD = {28, 29, 32, 255};
+GFX_PALETTE Col C_DISABLED = {96, 98, 104, 255};
+GFX_PALETTE Col C_ORANGE = {255, 200, 0, 255}; /* java.awt.Color.ORANGE: the selection box */
 
 static SDL_Renderer *R;
 static TTF_Font *font;

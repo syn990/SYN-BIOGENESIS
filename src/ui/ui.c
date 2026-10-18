@@ -22,6 +22,12 @@
 #include <string.h>
 
 #include "sim/genetic_code.h"
+#ifdef BIO_SYNOS
+/* The SYN-OS interface draws the widgets in its theme (synos/skin.h); the
+ * Heritage edition and the faithful build draw them as below. */
+#include "synos/synos.h"
+#define SKINNED synos_active()
+#endif
 
 #define MAX_LAYERS 32
 #define MAX_KEYS 32
@@ -38,6 +44,9 @@ static struct {
     bool down[4], pressed[4], released[4];
     bool dbl;
     int wheel_x, wheel_y;
+#ifdef BIO_SYN_EDITION
+    float wheel_fx, wheel_fy; /* with fractions, as touchpads scroll */
+#endif
     SDL_Keycode keys[MAX_KEYS];
     int nkeys;
     char text[64];
@@ -115,6 +124,10 @@ void ui_handle_event(const SDL_Event *e)
     case SDL_MOUSEWHEEL:
         U.wheel_y += e->wheel.y;
         U.wheel_x += e->wheel.x;
+#ifdef BIO_SYN_EDITION
+        U.wheel_fy += e->wheel.preciseY;
+        U.wheel_fx += e->wheel.preciseX;
+#endif
         break;
     case SDL_KEYDOWN:
         if (U.nkeys < MAX_KEYS)
@@ -171,6 +184,9 @@ static void consume_input_end(void)
     }
     U.dbl = false;
     U.wheel_x = U.wheel_y = 0;
+#ifdef BIO_SYN_EDITION
+    U.wheel_fx = U.wheel_fy = 0;
+#endif
     U.nkeys = 0;
     U.text[0] = '\0';
 }
@@ -257,6 +273,18 @@ int ui_wheel_x(void)
     return layer_live() ? U.wheel_x : 0;
 }
 
+#ifdef BIO_SYN_EDITION
+float ui_wheel_fy(void)
+{
+    return layer_live() ? U.wheel_fy : 0;
+}
+
+float ui_wheel_fx(void)
+{
+    return layer_live() ? U.wheel_fx : 0;
+}
+#endif
+
 bool ui_key_pressed(SDL_Keycode k)
 {
     for (int i = 0; i < U.nkeys; i++)
@@ -320,6 +348,16 @@ static bool clicked(uint32_t id, SDL_Rect r, bool enabled)
 bool ui_button(uint32_t id, SDL_Rect r, const char *label, bool enabled)
 {
     bool fire = clicked(id, r, enabled);
+#ifdef BIO_SYNOS
+    if (SKINNED) {
+        skin_button(synos_rect(r), synos_fonts()->ui, label,
+                    (WidgetState){.hover = enabled && U.hot == id,
+                                  .pressed = U.active == id && ui_hover(r),
+                                  .disabled = !enabled},
+                    false);
+        return fire;
+    }
+#endif
     Col bg = C_PANEL2;
     if (!enabled)
         bg = C_PANEL;
@@ -337,6 +375,15 @@ bool ui_icon_button(uint32_t id, SDL_Rect r, SDL_Texture *icon, const char *labe
                     const char *tooltip)
 {
     bool fire = clicked(id, r, enabled);
+#ifdef BIO_SYNOS
+    if (SKINNED)
+        skin_button(synos_rect(r), synos_fonts()->ui, "",
+                    (WidgetState){.hover = enabled && U.hot == id,
+                                  .pressed = U.active == id && ui_hover(r),
+                                  .disabled = !enabled},
+                    false);
+    else
+#endif
     if (enabled && (U.hot == id || (U.active == id && ui_hover(r)))) {
         gfx_fill(r, U.active == id ? C_PRESS : C_HOVER);
         gfx_frame(r, C_BORDER);
@@ -478,8 +525,16 @@ bool ui_textfield(uint32_t id, SDL_Rect r, char *buf, size_t cap)
             }
         }
     }
+#ifdef BIO_SYNOS
+    if (SKINNED) {
+        skin_input(synos_rect(r), U.focus == id, ui_hover(r), false);
+    } else {
+#endif
     gfx_fill(r, C_FIELD);
     gfx_frame(r, U.focus == id ? C_ACCENT : C_BORDER);
+#ifdef BIO_SYNOS
+    }
+#endif
     gfx_clip_push((SDL_Rect){r.x + 2, r.y, r.w - 4, r.h});
     int tx = r.x + 5, ty = r.y + (r.h - gfx_font_h()) / 2;
     gfx_text(tx, ty, buf, C_TEXT);
@@ -510,8 +565,16 @@ bool ui_combo(uint32_t id, SDL_Rect r, const char *const *items, int n, int *sel
     }
     if (clicked(id, r, true))
         ui_popup_open(id, r.x, r.y + r.h, items, NULL, n);
+#ifdef BIO_SYNOS
+    if (SKINNED) {
+        skin_input(synos_rect(r), ui_popup_open_for(id), U.hot == id, false);
+    } else {
+#endif
     gfx_fill(r, U.hot == id ? C_HOVER : C_PANEL2);
     gfx_frame(r, C_BORDER);
+#ifdef BIO_SYNOS
+    }
+#endif
     if (*sel >= 0 && *sel < n)
         gfx_text_in((SDL_Rect){r.x, r.y, r.w - 18, r.h}, items[*sel], C_TEXT, false);
     draw_drop_arrow(r);
@@ -588,10 +651,21 @@ bool ui_spinner(uint32_t id, SDL_Rect r, double *v, double min, double max, doub
             changed = true;
         }
     }
+#ifdef BIO_SYNOS
+    if (SKINNED) {
+        skin_button(synos_rect(up), synos_fonts()->ui, "",
+                    (WidgetState){.hover = U.hot == (id ^ 0x55u)}, false);
+        skin_button(synos_rect(dn), synos_fonts()->ui, "",
+                    (WidgetState){.hover = U.hot == (id ^ 0xAAu)}, false);
+    } else {
+#endif
     gfx_fill(up, U.hot == (id ^ 0x55u) ? C_HOVER : C_PANEL2);
     gfx_fill(dn, U.hot == (id ^ 0xAAu) ? C_HOVER : C_PANEL2);
     gfx_frame(up, C_BORDER);
     gfx_frame(dn, C_BORDER);
+#ifdef BIO_SYNOS
+    }
+#endif
     int cx = up.x + bw / 2;
     for (int i = 0; i < 3; i++) {
         gfx_line(cx - i, up.y + up.h / 2 - 1 + i, cx + i, up.y + up.h / 2 - 1 + i, C_TEXT_DIM);
@@ -611,6 +685,14 @@ bool ui_tabs(uint32_t id, SDL_Rect r, const char *const *names, int n, int *sel)
             *sel = i;
             changed = true;
         }
+#ifdef BIO_SYNOS
+        if (SKINNED) {
+            skin_tab(synos_rect(t), synos_fonts()->ui, names[i],
+                     (WidgetState){.hover = U.hot == id + (uint32_t)i, .active = i == *sel});
+            x += w + 2;
+            continue;
+        }
+#endif
         gfx_fill(t, i == *sel ? C_PANEL2 : (U.hot == id + (uint32_t)i ? C_HOVER : C_PANEL));
         gfx_frame(t, C_BORDER);
         if (i == *sel)
@@ -646,6 +728,13 @@ bool ui_popup_open_for(uint32_t owner)
 {
     return U.popup_open && U.popup_owner == owner;
 }
+
+#ifdef BIO_SYN_EDITION
+bool ui_popup_showing(void)
+{
+    return U.popup_open;
+}
+#endif
 
 int ui_popup_take(uint32_t owner)
 {
@@ -691,9 +780,17 @@ static void popup_frame(void)
     if (y < 0)
         y = 0;
     SDL_Rect box = {x, y, w, h};
+#ifdef BIO_SYNOS
+    if (SKINNED) {
+        skin_panel(synos_rect(box), false);
+    } else {
+#endif
     gfx_fill((SDL_Rect){x + 3, y + 3, w, h}, (Col){0, 0, 0, 90});
     gfx_fill(box, C_PANEL);
     gfx_frame(box, C_BORDER);
+#ifdef BIO_SYNOS
+    }
+#endif
     int cy = y + 2;
     int chosen = -1;
     for (int i = 0; i < U.popup_n; i++) {
@@ -704,6 +801,18 @@ static void popup_frame(void)
         }
         SDL_Rect it = {x + 2, cy, w - 4, ih};
         bool over = rect_has(it, U.mx, U.my) && U.popup_enabled[i];
+#ifdef BIO_SYNOS
+        if (SKINNED) {
+            if (over)
+                skin_row_hover(synos_rect(it));
+            gfx_text(it.x + 12, it.y + (ih - fh) / 2, U.popup_items[i],
+                     U.popup_enabled[i] ? C_TEXT : C_DISABLED);
+            if (over && !U.popup_just_opened && (U.released[1] || U.released[3]))
+                chosen = i;
+            cy += ih;
+            continue;
+        }
+#endif
         if (over)
             gfx_fill(it, C_ACCENT);
         gfx_text(it.x + 12, it.y + (ih - fh) / 2, U.popup_items[i],
@@ -768,11 +877,26 @@ SDL_Rect ui_window_begin(UIWin *win, uint32_t id, const char *title, bool modal)
     } else {
         ui_layer_begin(id, frame, false);
     }
+#ifdef BIO_SYNOS
+    SDL_Rect bar;
+    if (SKINNED) {
+        bar = (SDL_Rect){frame.x + 1, frame.y + 1, frame.w - 2, th};
+        skin_panel(synos_rect(frame), false);
+        skin_bar(synos_rect(bar));
+    } else {
+        gfx_fill((SDL_Rect){frame.x + 4, frame.y + 4, frame.w, frame.h}, (Col){0, 0, 0, 80});
+        gfx_fill(frame, C_PANEL);
+        gfx_frame(frame, C_BORDER);
+        bar = (SDL_Rect){frame.x + 1, frame.y + 1, frame.w - 2, th};
+        gfx_fill(bar, C_PANEL2);
+    }
+#else
     gfx_fill((SDL_Rect){frame.x + 4, frame.y + 4, frame.w, frame.h}, (Col){0, 0, 0, 80});
     gfx_fill(frame, C_PANEL);
     gfx_frame(frame, C_BORDER);
     SDL_Rect bar = {frame.x + 1, frame.y + 1, frame.w - 2, th};
     gfx_fill(bar, C_PANEL2);
+#endif
     gfx_text(bar.x + 8, bar.y + 5, title, C_TEXT);
     SDL_Rect close = {bar.x + bar.w - th, bar.y, th, th};
     bool close_hot = ui_hover(close);
@@ -824,9 +948,18 @@ void ui_end_frame(void)
         if (y + h > sh)
             y = U.my - h - 4;
         SDL_Rect r = {x, y, w, h};
+#ifdef BIO_SYNOS
+        if (SKINNED) {
+            skin_panel(synos_rect(r), false);
+            gfx_text(x + 6, y + 3, U.tooltip, C_TEXT);
+        } else {
+#endif
         gfx_fill(r, (Col){250, 250, 225, 255});
         gfx_frame(r, (Col){90, 90, 70, 255});
         gfx_text(x + 6, y + 3, U.tooltip, (Col){20, 20, 20, 255});
+#ifdef BIO_SYNOS
+        }
+#endif
     } else if (!U.tooltip[0]) {
         U.tooltip_hot = 0;
     }

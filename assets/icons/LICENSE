@@ -9,6 +9,10 @@ version 2 or later (see LICENSE at the top of this repository), and credits
 its artwork to Ananda Daydream and Florian Haag
 (http://toolbaricons.sourceforge.net/).
 
+menu_backup.png, used by the colour build, is copied unchanged from the
+source release of Biogenesis Color Mod 2.01 (Copyright (C) 2012-2022
+MarcoDBAA), under the same licence; Color Mod does not say who drew it.
+
 Biogenesis does not record which icon is by which artist. Florian Haag's
 Toolbar Icons are released under the MIT License; its notice, as shipped in
 ToolbarIcons-src-20100505.tar.gz, follows.

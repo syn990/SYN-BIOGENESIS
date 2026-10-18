@@ -29,8 +29,14 @@ typedef struct {
 
 #define COL(r, g, b) ((Col){(r), (g), (b), 255})
 
-/* The palette (dark, so the black world blends in). */
-extern const Col C_BG, C_PANEL, C_PANEL2, C_BORDER, C_TEXT, C_TEXT_DIM, C_ACCENT, C_HOVER,
+/* The palette (dark, so the black world blends in). The SYN-OS interface
+ * of the SYN and colour builds recolours it to its theme. */
+#if defined(BIO_SYN_EDITION) || defined(BIO_SYNOS)
+#define GFX_PALETTE
+#else
+#define GFX_PALETTE const
+#endif
+extern GFX_PALETTE Col C_BG, C_PANEL, C_PANEL2, C_BORDER, C_TEXT, C_TEXT_DIM, C_ACCENT, C_HOVER,
     C_PRESS, C_FIELD, C_DISABLED, C_ORANGE;
 
 bool gfx_init(SDL_Renderer *r);

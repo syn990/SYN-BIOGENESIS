@@ -25,17 +25,35 @@
 
 #include "ui/gfx.h"
 #include "ui/ui.h"
+#ifdef BIO_COLOUR
+#include "sim/params.h"
+#endif
 
+#ifdef BIO_SYN_EDITION
+/* the SYN-OS interface pans by dragging and has a minimap instead; the
+ * Heritage edition has the scrollbars */
+#include "synos/synos.h"
+#define SCROLLBAR (synos_active() ? 0 : 12)
+#else
 #define SCROLLBAR 12
+#endif
 #define ZOOM_MIN 0.125
 #define ZOOM_MAX 16.0
 
+#ifdef BIO_COLOUR
+/* the colour build's segment colours are java.awt.Color values already */
+static uint32_t argb(JColor c)
+{
+    return 0xFF000000u | c;
+}
+#else
 static uint32_t argb(int c)
 {
     uint8_t r, g, b;
     bio_color_rgb(c, &r, &g, &b);
     return 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
+#endif
 
 void wv_init(WorldView *v)
 {
@@ -239,6 +257,22 @@ static void plot_line(Canvas *c, int x0, int y0, int x1, int y1, uint32_t col)
     }
 }
 
+#ifdef BIO_COLOUR
+/* Color Mod's Organism.draw: the flash colour, except on eyes; else the
+ * segment colours; brown once dead, unless it has eyes. */
+static uint32_t segment_argb(const Organism *o, int i)
+{
+    if (o->frames_color > 0)
+        return o->haseyes && o->seg_color[i] == CM_EYE ? argb(o->seg_color[i])
+                                                       : argb(o->flash_color);
+    return o->alive || o->haseyes ? argb(o->seg_color[i]) : argb(CM_BROWN);
+}
+
+static void draw_organism(Canvas *c, const Organism *o, double ox, double oy, double k)
+{
+    for (int i = 0; i < o->segments; i++) {
+        uint32_t col = segment_argb(o, i);
+#else
 /* Organism.draw: flash colour, else segment colours (brown once dead). */
 static void draw_organism(Canvas *c, const Organism *o, double ox, double oy, double k)
 {
@@ -247,6 +281,7 @@ static void draw_organism(Canvas *c, const Organism *o, double ox, double oy, do
     uint32_t brown = argb(COL_BROWN);
     for (int i = 0; i < o->segments; i++) {
         uint32_t col = flash ? flash : (o->alive ? argb(o->seg_color[i]) : brown);
+#endif
         int x0 = o->x1[i] + o->center_x, y0 = o->y1[i] + o->center_y;
         int x1 = o->x2[i] + o->center_x, y1 = o->y2[i] + o->center_y;
         if (k == 1.0) {
@@ -300,6 +335,11 @@ void wv_draw(WorldView *v, const World *w, const Organism *selected)
 
     /* outside the world: grey, like the scroll pane's background */
     uint32_t outside = 0xFF303034u, black = 0xFF000000u;
+#ifdef BIO_SYN_EDITION
+    /* SYN-OS: beyond the world is the theme's */
+    if (synos_active())
+        outside = 0xFF000000u | (uint32_t)C_PANEL.r << 16 | (uint32_t)C_PANEL.g << 8 | C_PANEL.b;
+#endif
     for (int y = 0; y < bh; y++) {
         double wy = oy + y / k;
         uint32_t *row = c.pix + (size_t)y * bw;
@@ -324,14 +364,24 @@ void wv_draw(WorldView *v, const World *w, const Organism *selected)
             o->r.y + o->r.height < wy0)
             continue;
         draw_organism(&c, o, ox, oy, k);
-        /* as Organism.draw: the flash lasts ten drawings */
+#ifndef BIO_COLOUR
+        /* as Organism.draw: the flash lasts ten drawings (Color Mod counts
+         * them in Organism.move instead) */
         if (o->frames_color > 0)
             o->frames_color--;
+#endif
     }
     if (selected) {
         const JRect *r = &selected->r;
+#ifdef BIO_COLOUR
+        /* Color Mod outlines an infected organism in white */
+        plot_rect(&c, (int)floor((r->x - ox) * k), (int)floor((r->y - oy) * k),
+                  (int)floor((r->width - 1) * k), (int)floor((r->height - 1) * k),
+                  selected->infected_gc ? 0xFFFFFFFFu : 0xFFFFC800u);
+#else
         plot_rect(&c, (int)floor((r->x - ox) * k), (int)floor((r->y - oy) * k),
                   (int)floor((r->width - 1) * k), (int)floor((r->height - 1) * k), 0xFFFFC800u);
+#endif
     }
 
     SDL_Rect src = {0, 0, bw, bh};
@@ -343,6 +393,9 @@ void wv_draw(WorldView *v, const World *w, const Organism *selected)
     SDL_RenderCopy(R, v->tex, &src, &dst);
     gfx_clip_pop();
 
+#ifdef BIO_SYN_EDITION
+    if (SCROLLBAR) {
+#endif
     /* scrollbars */
     SDL_Rect ht, hb, vt, vb;
     bars(v, w, &ht, &hb, &vt, &vb);
@@ -351,6 +404,9 @@ void wv_draw(WorldView *v, const World *w, const Organism *selected)
     gfx_fill(hb, v->drag_bar == 1 ? C_PRESS : C_HOVER);
     gfx_fill(vb, v->drag_bar == 2 ? C_PRESS : C_HOVER);
     gfx_fill((SDL_Rect){in.x + in.w, in.y + in.h, SCROLLBAR, SCROLLBAR}, C_PANEL);
+#ifdef BIO_SYN_EDITION
+    }
+#endif
 }
 
 SDL_Surface *wv_organism_image(const Organism *o)

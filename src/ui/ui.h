@@ -61,6 +61,11 @@ void ui_mouse(int *x, int *y);
 bool ui_mouse_down(int button);
 int ui_wheel_y(void);
 int ui_wheel_x(void);
+#ifdef BIO_SYN_EDITION
+/* The wheel with its fractions (touchpads; sdl2-compat's pushed events). */
+float ui_wheel_fy(void);
+float ui_wheel_fx(void);
+#endif
 bool ui_key_pressed(SDL_Keycode k);
 SDL_Keymod ui_mods(void);
 bool ui_text_focused(void);
@@ -95,6 +100,10 @@ void ui_tooltip(const char *s);
 void ui_popup_open(uint32_t owner, int x, int y, const char *const *items, const bool *enabled,
                    int n);
 bool ui_popup_open_for(uint32_t owner);
+#ifdef BIO_SYN_EDITION
+/* Any popup menu is open (it takes Esc for itself). */
+bool ui_popup_showing(void);
+#endif
 /* The chosen item for owner, once (or -1). */
 int ui_popup_take(uint32_t owner);
 void ui_popup_close(void);

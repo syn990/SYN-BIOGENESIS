@@ -22,7 +22,7 @@ the results and charts to docs/drift/:
 
 --growth-only reuses results.csv and redoes only growth.csv and the charts.
 
-Needs tools/javaref/fetch.sh to have run, `make headless libc`, and for
+Needs tools/javaref/fetch.sh to have run, `make` and `make libc`, and for
 Java 11/17/21 tools/drift/fetch-jdks.sh. Variants whose JVM is missing are
 skipped.
 """
@@ -52,7 +52,7 @@ GROWTH_FRAMES = 3000
 # name, label, how it runs: ("java", [jvm and flags]) or ("c", binary)
 VARIANTS = [
     ("java27", "Java 27 (reference)", ("java", ["java"])),
-    ("port", "SYN-BIOGENESIS", ("c", ROOT / "syn-biogenesis-headless")),
+    ("port", "SYN-BIOGENESIS", ("c", ROOT / "syn-biogenesis")),
     ("port-libc", "SYN-BIOGENESIS, C library maths", ("c", ROOT / "syn-biogenesis-headless-libc")),
     ("java8", "Java 8", ("java", [str(JAVA8)])),
     ("java27-fdlibm", "Java 27, fdlibm maths",

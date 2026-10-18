@@ -27,6 +27,8 @@ them in another language and is not affiliated with them. See
 [The reimplementation](#the-reimplementation) ·
 [Lapsadian determinism and drift](#lapsadian-determinism-and-drift) ·
 [Build and run](#build-and-run) · [Using it](#using-it) ·
+[Color Mod 2.01](#color-mod-201) ·
+[The SYN edition](#the-syn-edition) ·
 [Source and tests](#source-and-tests) · [Credits](#credits)
 
 ## Biogenesis
@@ -114,8 +116,11 @@ well-fed offspring for many weak ones, each carrying its own mutations.
 - **X Mod 0.2.2**, Adam Muschielok, 2015: alternative mutation mechanisms and
   stress-based ageing.
 
-SYN-BIOGENESIS reimplements vanilla 0.9. The mods ship in the same
-SourceForge download as compiled classes and are not included.
+SYN-BIOGENESIS reimplements vanilla 0.9, and Color Mod 2.01 beside it in
+the same program ([Color Mod 2.01](#color-mod-201)). The mods
+ship in the same SourceForge download as compiled classes; Color Mod's
+Java source is published beside it ("ColorMod 2_01 and sourcecode.zip").
+X Mod is not included.
 
 ## The reimplementation
 
@@ -361,18 +366,46 @@ Needs a C compiler, SDL2, SDL2_ttf and SDL2_image (on Arch:
 
 ```sh
 make
-./syn-biogenesis            # random world
-./syn-biogenesis 42         # seeded, like `java -jar biogenesis.jar 42`
+./syn-biogenesis            # what was used last; the first time, Biogenesis 0.9
+./syn-biogenesis 42         # Biogenesis 0.9, seeded, like `java -jar biogenesis.jar 42`
+./syn-biogenesis --colour   # Color Mod 2.01
 ```
 
-`make headless` builds `syn-biogenesis-headless`, the simulation alone (no
-SDL), for benchmarks and long runs:
+`make` builds one program, `syn-biogenesis`, with everything in it:
+**Biogenesis 0.9** and **[Color Mod 2.01](#color-mod-201)**. Each runs in
+its own classic window (the Heritage edition) or in the
+[SYN-OS interface](#the-syn-edition), with its themes, main menu, options,
+statistics, zoom at the cursor, drag to pan and new looks.
+
+The first run is Biogenesis 0.9 as the original looks. Each window can
+switch to the other simulation:
+
+- View > Color Mod 2.01 in Biogenesis' window, View > Biogenesis 0.9 in
+  Color Mod's;
+- Game, or SIMULATION in OPTIONS, in SYN-OS.
+
+Switching asks whether to save the world first, as quitting does. The
+program opens with the simulation used last
+(`~/.config/syn-biogenesis/variant.cfg`). View > SYN-OS interface, and
+INTERFACE in OPTIONS, change the interface; both simulations share the
+choice, the theme and the look.
+
+Without a window, for benchmarks and long runs:
 
 ```sh
-./syn-biogenesis-headless --headless --seed 42 --frames 100000 --report 10000
+./syn-biogenesis --headless --seed 42 --frames 100000 --report 10000
+./syn-biogenesis --colour --headless --seed 42 --frames 1000
 ```
 
-Parameters are kept in `~/.config/syn-biogenesis/params.cfg`.
+`./syn-biogenesis --help` lists the forms. The parameters are kept in
+`~/.config/syn-biogenesis/params.cfg` (Color Mod's in `colour-params.cfg`).
+
+The two simulations are two programs inside this one. Their organisms,
+worlds and windows are written with the same names, so Color Mod's whole
+program is linked as one object with every name hidden except its entry
+point (see the Makefile and `src/launcher.c`). Biogenesis 0.9's
+simulation is the translation compiled with nothing else. Through this
+program it matches the jar frame by frame (`make test`).
 
 ## Using it
 
@@ -414,6 +447,298 @@ create randomly, import).
   shows its current frame delay (1000 ÷ delay), not a measured rate. This
   one measures.
 
+## Color Mod 2.01
+
+`./syn-biogenesis --colour`, or a switch from Biogenesis 0.9's window, runs
+**Biogenesis Color Mod 2.01**
+by MarcoDBAA, the mod with 46 gene colours, methane, genes that branch,
+36 kinds of reaction per gene, per-organism mutation rates and life
+expectancy, in C. Like Biogenesis 0.9 here, it computes the world the shipped
+Color Mod computes, bit for bit: same seed, same parameters, same world on
+every frame.
+
+Color Mod is a much bigger program than 0.9. Its `Organism.java` alone has
+19,336 lines, most of them the rules for what each colour does when it
+touches another. Those classes (`Organism`, `GeneticCode`, `Gene`) are not
+ported by hand: `tools/colour/translate.py` translates Color Mod's own Java
+source into `src/colour/sim/`, keeping Java's meaning where C's differs
+(the order operands are evaluated in, `(int)` of a double, `Math.round`,
+`Math.min` with NaN and -0.0, strings shared by reference). The world, its
+statistics and the parameters follow the 0.9 port with Color Mod's
+changes. The checks, against the shipped Color Mod jar (`make test`, with
+`tools/javaref/fetch.sh` run):
+
+- **The simulation:** seeds 1, 42 and 1234 in Color Mod's default world
+  (7000 x 7000, 12,500 organisms at the start) give the same state as the
+  jar, compared every tenth frame for 3,000 frames: every organism's energy,
+  position, angle, speeds, size, age and kills, and the atmosphere. Those
+  runs execute 76% of the translated organism code's lines.
+- **Worlds (.bgw):** a world saved here is the file Color Mod saves, byte
+  for byte; each program opens the other's and continues it identically.
+- **Genetic codes (.bgg):** read and written as Color Mod's own parser does,
+  for codes written by either program, mutated, evolved in a world, with
+  extreme values, and damaged.
+
+It runs about 1.1 times as fast as the jar: 1,000 frames of the default
+world in 33 seconds here, against 37 on OpenJDK 27. (The 0.9 port is
+faster than 0.9 by more, partly because it caches what the translation
+recomputes.)
+
+Everything Color Mod adds to the window is there: the **Actions** menu
+(CO2 and CH4 up or down by 1,000, kill all, disperse all), **Backup** (B)
+and automatic backups, methane in the status bar and the statistics, life
+expectancy, mutation rate and clade in the info bar, the laboratory with
+the code's 22 traits and every gene's branch and reactions, and the
+parameters dialog's seven tabs. Its parameters are kept apart from 0.9's,
+in `~/.config/syn-biogenesis/colour-params.cfg`, with Color Mod's
+defaults (its README asks for those).
+
+It has the [SYN-OS interface](#the-syn-edition) too, as Biogenesis 0.9
+has it, with its own menus in the top bar, methane among the figures and
+charts, its clades as the statistics' lines, and the looks drawn for its
+46 colours and branching bodies.
+
+| | | |
+|---|---|---|
+| ![Color Mod, Biological](docs/screenshots/syn-colour-biological.png) | ![Color Mod, Digital](docs/screenshots/syn-colour-digital.png) | ![Color Mod's statistics](docs/screenshots/syn-colour-stats.png) |
+| Color Mod in SYN-OS, Biological | Digital, segments out of action dotted | Its statistics: the epochs |
+
+Differences from the Java Color Mod are those of 0.9 here (no network,
+English only, no version check), plus: the window opens at 1100 x 760
+rather than 640 x 480, which is too small for its dialogs; and a 0.9 world
+is refused with a message where Color Mod would read it with all its own
+fields missing.
+
+## The SYN edition
+
+Both simulations have a second interface, SYN-OS: the one SYN-TREK and
+SYN-DEBT share, with a new world view. It runs the same simulation as the
+Heritage edition, so a seed gives the same world bit for bit; only how the
+world is shown and handled differs.
+
+| | | |
+|---|---|---|
+| ![Main menu](docs/screenshots/syn-menu.png) | ![Options](docs/screenshots/syn-options.png) | ![Genetic laboratory in a light theme](docs/screenshots/syn-lab-light.png) |
+| The main menu over the world | OPTIONS (theme SYN-OS-BEVEL-TEAL) | The laboratory in SYN-OS-VANILLA-LIGHT-CREAM |
+| ![Biological](docs/screenshots/syn-biological.png) | ![Galaxy](docs/screenshots/syn-galaxy.png) | ![Digital (SYN-OS)](docs/screenshots/syn-digital.png) |
+| Biological | Galaxy | Digital (SYN-OS) |
+
+### SYN-OS or the Heritage edition
+
+**INTERFACE** in OPTIONS (or View > SYN-OS interface in the classic
+windows) switches between two interfaces while the world runs:
+
+- **Heritage edition**, what the first run shows, is each simulation's
+  own window: menu bar, toolbar, info bar, status bar, scrollbars, the
+  classic colours, and the original's mouse and keys. With the same world
+  loaded, its screen is pixel for pixel that of the window built without
+  any of the SYN edition, for both simulations (checked for the world, a
+  selection, statistics, the laboratory and the parameters).
+- **SYN-OS** opens on a main menu over the living world:
+  CONTINUE, NEW WORLD, LOAD WORLD, OPTIONS, QUIT. In the world, the world
+  fills the window. A top bar holds the menus (Game, World, View, Help),
+  the tools, and the world's figures (time, population, O2, CO2, FPS,
+  zoom), which go on a second row when the window is too narrow for one.
+  A selected organism's figures and actions are on a panel at the bottom
+  left; its Family button finds its species in the
+  [family tree](#the-family-tree). Status messages show at the bottom for
+  a few seconds. Esc lets go of the selection, or with nothing selected
+  opens the main menu. Every bar, panel, button, tab, field, popup menu
+  and dialog is drawn in a SYN-OS theme.
+
+The themes are SYN-OS's 63 palettes (`assets/themes/`, the files SYN-OS
+uses for labwc, waybar, foot and mako), in its five families: VANILLA,
+BEVEL, FLATLINE, HALO and SLAB. The palette gives the colours. The family
+gives the shape of things, as its templates do in SYN-OS: flat panels,
+gradients and lit edges, bare text, glowing outlines, heavy borders.
+Until one is picked, the theme is the one SYN-OS has on
+(`~/.config/syn-os/current-theme`), else SYN-OS-RED. Choices are kept in
+`~/.config/syn-biogenesis/synos.cfg`. `SYN_BIOGENESIS_INTERFACE=heritage`
+(or `synos`) and `SYN_BIOGENESIS_THEME=SYN-OS-HALO-CYAN` set them for one
+run.
+
+### Moving around
+
+In SYN-OS (the Heritage edition keeps the original's scrollbars and keys):
+
+| Input | Does |
+| --- | --- |
+| Wheel | zoom at the cursor, eased (touchpads zoom smoothly) |
+| Left or middle drag | pan; let go while moving and the view glides on |
+| Left click | select (a press that doesn't drag) |
+| Shift+wheel, arrows | scroll |
+| + / - / 0 | zoom in, out, 100% |
+| Home | fit the world |
+| M | minimap on or off |
+| L | next look |
+| Esc | let go of the selection; the main menu |
+
+Zoom runs from 3% to 4,800%. The minimap sits at the bottom right while
+part of the world is out of view; click or drag in it to move there.
+Dragging lets go of a tracked organism.
+
+### Statistics
+
+In SYN-OS, **World > Statistics** opens a statistics screen over the
+running world (the Heritage edition keeps the original's window). It has
+five tabs, switched with 1 to 5. The wheel, Page Up and Down, Home, End
+and the bar at the right scroll it (the family tree moves and zooms
+instead).
+
+| | | |
+|---|---|---|
+| ![Charts](docs/screenshots/syn-stats-charts.png) | ![Epochs](docs/screenshots/syn-stats-epochs.png) | ![Timeline](docs/screenshots/syn-stats-timeline.png) |
+| Charts, hovered together | Epochs, their best species and champions | The lines' river, as shares |
+| ![Family tree](docs/screenshots/syn-stats-family.png) | ![Family tree, the best of each epoch](docs/screenshots/syn-stats-family-best.png) | ![Color Mod's family tree](docs/screenshots/syn-colour-family.png) |
+| The family tree: the species living now | The best of epochs 10 to 15, 15 steps from its root | Color Mod's, from its clades |
+
+- **OVERVIEW:** the world now: time, living, corpses, lines living, the
+  gases, the original's averages, mass extinctions and the most ever
+  alive. Also the colours of the living, the champions alive now, and the
+  records the original's window keeps (the most children, victims and
+  infections ever; the last born, dead and infected).
+- **CHARTS:** twelve measures over the whole run: population and corpses,
+  births and deaths per unit, infections, oxygen, carbon dioxide, the
+  colours of the living, mean and highest generation, lines living, mean
+  energy, biomass, body size and age. Show the whole run, its last
+  quarter or its last 5%. Hovering one chart reads the same moment on all
+  of them.
+- **EPOCHS:** the run cut into epochs, newest first. Each epoch shows its
+  span and its colour ("THE GREEN EPOCH"). It also shows the living
+  (lowest, highest, mean), the births, deaths and infections, the line
+  that led it, and its mass extinctions. Then comes its best species, the
+  one with the most living at once in it (a click follows it in the
+  family tree), and its champions: of the organisms alive in it, the most
+  children, victims and infections over their lives, the most energy, the
+  highest generation and the heaviest. The length of an epoch is chosen
+  to give about 24 of them, or by hand. (They were called ages, which an
+  organism has too.)
+- **FAMILY:** the [family tree](#the-family-tree), drawn live as Graphviz
+  draws a graph.
+- **TIMELINE:** first the river of the lines: every living organism by
+  the line it descends from, with the ten biggest named. It shows counts
+  or shares of the living, with the epochs marked along the top and the
+  events under it. Below it are the events, filtered by kind:
+  - population and organism records, at the times the world records them;
+  - mass extinctions;
+  - colours dying out, coming back or taking the lead;
+  - lines taking the lead or dying out;
+  - CO2 or O2 running out;
+  - what you did (CO2 added or taken, organisms killed, placed, revived
+    and so on).
+
+A click on any organism shown opens it in the genetic laboratory, and a
+right click copies its code. Esc or BACK returns to the world.
+
+The history starts when the world is created or opened; a world file
+doesn't carry it. It is recorded once a time unit (256 frames) for the
+whole run. Samples merge in pairs past 4,096 and epochs past 1,024, so a
+long run is kept at a coarser grain. A line is every organism descended
+from one founder: in Biogenesis 0.9, the roots of the family tree. Its
+founders are each organism of genesis, each body plan in a world when it
+is opened, and each organism created at random or imported by hand (a
+pasted copy joins the species of the organism it was copied from). Color
+Mod keeps lines itself: a clade ID begins with its founder's number, so
+the lines are the clades' roots, and they go on in saved worlds. Apart
+from 0.9's lineage mark (below), the recorder only reads the world.
+`make test` runs the same world with and without it, for both
+simulations, and checks that every frame's state, the random generator
+and the saved `.bgw` are identical (Color Mod's with its collector running
+every frame while it records). It also checks that the recorder's books
+balance: every birth, death and infection falls in exactly one epoch; and
+the family tree's: every parent founded before its children, every living
+organism in a species and their counts the population's, each epoch's
+best kept, nothing kept that should have been forgotten.
+Color Mod adds methane to the figures and the charts.
+
+### The family tree
+
+The statistics screen's FAMILY tab shows where the world's species came
+from, live as the world runs, drawn left to right the way Graphviz draws
+a graph. Each box is a species with its founder's body, how many are
+living (or when it died out) and its peak. Each edge says what changed
+on the way: "6 to 7 arms", "mirroring on", "+ blue segment (8th)",
+"3rd segment green to red".
+
+- **A species** is a body plan in Biogenesis 0.9: the number of arms,
+  the mirroring and the colours of the segments in order. Lengths and
+  angles mutate within a species; a birth that changes the plan founds a
+  new species, a child of the one its code came from. That is its
+  parent's, or for an infected parent's child, the infecting organism's.
+  The species rides on the genetic code's lineage mark, which the
+  simulation copies from parent to mutated child (and from the infecting
+  code) and never reads. In Color Mod a species is one of its own clades,
+  whose ID is already a family path (its founder, then a step wherever the
+  gene count or the symmetry changed), so its tree is read, not recorded,
+  and survives saved worlds.
+- **What is shown:** LIVING (the 40 biggest species alive now), BEST OF
+  EACH EPOCH (each epoch's best, marked with its epoch), or EVERY NOTABLE
+  (the 150 biggest that ever had 5 living at once and one in 50 of the
+  living), each with all it descends from. Species in between that are
+  only ancestors fold into the edge ("4 species between").
+- **Moving:** drag to move, the wheel zooms at the cursor, FIT (or Home)
+  shows it all. A click follows a species: its path to its root lights
+  up, and its card at the right gives its plan, its numbers and the way
+  there step by step (click a step to follow it). A double click opens it
+  in the genetic laboratory and a right click copies it. Backspace
+  follows the parent.
+- **EXPORT** writes the tree as shown into a folder beside the world
+  (`WORLD-family-tTIME`; for a world never saved, in the folder the game
+  started in): `family.dot`, rendered to `family.svg` and
+  `family.png` if Graphviz is installed, a picture and a `.bgg` of every
+  species shown, and the best of each epoch compiled as
+  `epoch-NN-species-ID.bgg` with an index, `best-of-each-epoch.txt`.
+
+Species that never mattered are forgotten once they die out (most are
+one-off mutants): those that never had 5 living at once and one in 50 of
+the living, with nothing kept descending from them and best of no epoch.
+So the tree stays small however long the world runs. A world file
+doesn't carry the tree; it begins when the world is created or opened.
+
+### Looks
+
+Chosen in OPTIONS, the View menu or with L, and remembered in
+`~/.config/syn-biogenesis/syn.cfg` (`SYN_BIOGENESIS_LOOK=galaxy` picks
+one for a single run). Every look keeps what the colours mean, in its
+own palette.
+
+- **Classic:** Biogenesis' own pixels, as the Heritage edition draws them.
+- **Biological:** a drop of water under a microscope. Each organism is a
+  cell, its segments strands in cytoplasm inside one membrane. The
+  nucleus swells with stored energy, cilia beat along the segments that
+  move it, corpses lie as sepia strands, and the water drifts with motes
+  in it.
+- **Galaxy:** each organism a galaxy, its segments glowing arms around a
+  core that brightens with energy, over nebulae and three layers of stars
+  that lie behind the world in parallax. Zoomed out, the organisms are
+  stars.
+- **Digital (SYN-OS):** viruses on a SYN-OS screen, in its black, reds
+  and gold: neon wireframes with nodes on a grid, the wallpaper's
+  grime, scanlines, a hit splitting an organism's red and cyan, newborns
+  boxed in as they spawn, corpses broken into flickering dashes.
+
+For Color Mod's 46 colours, each look keeps what each colour does. The
+seven colours Color Mod shares with 0.9 are drawn as 0.9's look draws
+them. The others keep their hue in the look's light and saturation, so
+they stay apart. A colour's job shows:
+
+- cilia on cyan and teal;
+- eyes look out, as an eye, a winking star or a target reticle;
+- healers glow (coral, mint, lavender, magenta, rose, indigo), with a plus
+  in Digital;
+- segments out of action for now (frozen, broken, withered, recharging,
+  poisoned) are greyed, dark lanes in Galaxy, dotted in Digital.
+
+Bodies are built as Color Mod builds them, with branches and longer eyes.
+
+The three new looks draw each organism at screen resolution, as
+antialiased strokes, from the genes' exact lengths and the organism's
+exact position and angle (the simulation rounds the body to whole pixels
+on every frame). When the simulation runs slower than the screen (a frame
+delay of 8 ms or more; the default is 50), organisms move smoothly
+between frames instead of jumping, growth is eased, and newborns swell
+out from a point. None of this feeds back into the simulation.
+
 ## Source and tests
 
 ```
@@ -424,17 +749,29 @@ src/fdlibm/     fdlibm's atan2, which is what Math.atan2 is
 src/io/         .bgg genetic codes (XML); .bgw worlds (Java serialization, jser.c);
                 .sbw worlds
 src/ui/         SDL2 front end: immediate-mode widgets, world view, dialogs
-src/headless.c, src/main.c
+src/colour/     Color Mod 2.01: sim/ (organism and genetic_code translated from
+                Color Mod's Java, params generated, world and stats ported, jrt the
+                Java runtime they need), io/ (.bgg, .bgw), ui/ (its window and dialogs)
+src/syn/        the SYN edition's world view: navigation, the looks, batched drawing;
+                its history (history.c), family tree (family.c, family_view.c)
+                and statistics screen (stats_screen.c);
+                palette.c, the segment colours of both simulations
+src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
+                (SYN-DEBT's, drawn with SDL_Renderer), the main menu and options
+src/headless.c, src/main.c   Biogenesis 0.9 without a window, its arguments
+src/launcher.c, src/host.h   the program: runs Biogenesis 0.9 or Color Mod, switches
 tests/          make test
-tools/javaref/  the Java reference: runs the shipped jar headless
+tools/javaref/  the Java reference: runs the shipped jar headless (colour/: Color Mod's)
+tools/colour/   the Java-to-C translator for Color Mod (translate.py)
 tools/jvmlibm/  translates HotSpot's sin/cos/pow into jvm_libm_x86_64.S
 tools/drift/    the drift study and its charts (docs/drift/)
 tools/being/    the being search, the battles and their charts (docs/being/)
 ```
 
 ```sh
-tools/javaref/fetch.sh   # once: downloads Biogenesis 0.9, builds the Java reference
+tools/javaref/fetch.sh   # once: downloads Biogenesis 0.9 and Color Mod 2.01, builds both references
 make test
+python3 tools/colour/translate.py   # regenerates src/colour's translated files
 ```
 
 `make test` runs these checks:
@@ -449,6 +786,11 @@ make test
 - worlds saved by the jar and by the port, compared byte for byte, loaded
   by the other and continued
 - the frame-by-frame comparison with the shipped jar
+- the SYN edition's history, for both simulations: the same world run with
+  and without it hashes the same every frame and saves the same `.bgw`,
+  and its books add up
+- for Color Mod (`tests/colour.sh`): the same checks against the
+  Color Mod jar for genetic codes, worlds and the simulation
 
 The Java parts are skipped without a JDK. The reference runs the jar's own classes, not
 recompiled and not patched. Only the Swing classes they call into are
@@ -467,7 +809,13 @@ SDL_VIDEODRIVER=offscreen SYN_BIOGENESIS_SHOT=out.png SYN_BIOGENESIS_SHOT_LOAD=w
 ```
 
 `SHOT_LOAD` opens a saved world (`.sbw` or `.bgw`) and `SHOT_VIEW` centres
-the view on x,y at a zoom.
+the view on x,y at a zoom. In the SYN edition, `SYN_BIOGENESIS_SHOT_SCREEN`
+is `menu`, `options` or `world` (the default when `SHOT_UI` is set), or
+`stats` with `SYN_BIOGENESIS_SHOT_TAB` naming the tab (`overview`,
+`charts`, `epochs`, `family`, `timeline`). On the family tab,
+`SYN_BIOGENESIS_SHOT_FAMILY` is `living`, `best` or `notable`,
+`SYN_BIOGENESIS_SHOT_FOCUS` follows the species with the most living, and
+`SYN_BIOGENESIS_SHOT_EXPORT` exports the tree as EXPORT does.
 
 ## Credits
 
@@ -478,6 +826,9 @@ behaviour are the original's:
   <https://biogenesis.sourceforge.net/>
 - **Biogenesis 0.9** by MarcoDBAA (2019), with STRtree collision detection
   (JTS, by Vivid Solutions) implemented by Richard David Williams.
+- **Biogenesis Color Mod**, copyright (c) 2012-2022 MarcoDBAA, GPL version 2
+  or later; Color Mod here is translated from its 2.01 source, and its
+  backup icon is Color Mod's.
 - **Icons** are copied unchanged from Biogenesis, which credits its artwork
   to Ananda Daydream and Florian Haag
   ([Toolbar Icons](https://sourceforge.net/projects/toolbaricons/),
