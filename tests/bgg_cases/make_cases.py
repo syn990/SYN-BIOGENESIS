@@ -55,7 +55,7 @@ nums = {"plus": "+5", "trailing_dot": "5.", "leading_dot": ".5", "exp": "5e0", "
         "hex_float": "0x1.4p2", "hex_upper": "0X1P2", "hex_no_exponent": "0x10", "suffix_d": "5d", "suffix_f": "5f",
         "suffix_upper": "5D", "suffix_after_space": "5 d", "spaces_around": " 5 ", "suffix_then_space": "5d ",
         "infinity": "Infinity", "plus_infinity": "+Infinity", "minus_infinity": "-Infinity", "nan": "NaN",
-        "minus_nan": "-NaN", "c_inf": "inf", "c_INF": "INF", "c_nan": "nan", "c_infinity": "infinity",
+        "minus_nan": "-NaN", "c_inf": "inf", "c_inf_upper": "INF", "c_nan": "nan", "c_infinity": "infinity",
         "c_nan_payload": "nan(1)", "exp_no_digits": "1e", "only_exp": "e5", "empty": "", "blank": " ",
         "two_dots": "5..0", "underscore": "1_000", "arabic_digit": "٥", "hex_suffix": "0x1.8p1d",
         "overflow": "1e400", "underflow": "1e-400", "subnormal_boundary": "2.4703282292062328E-324",

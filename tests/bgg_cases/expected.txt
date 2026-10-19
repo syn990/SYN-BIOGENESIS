@@ -25,7 +25,7 @@ no_xml_declaration 6 1 1 6 40013b858b255a60 4008a9166a3b77a8 blue 402aa963248d9e
 number_arabic_digit reject
 number_blank reject
 number_c_inf reject
-number_c_INF reject
+number_c_inf_upper reject
 number_c_infinity reject
 number_c_nan reject
 number_c_nan_payload reject
