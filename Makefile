@@ -149,12 +149,13 @@ tests/num_check: tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 tests/bgw_fuzz: tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-# the SYN edition's history (src/syn/history.c) beside the simulation; the
-# small build merges its samples and epochs within a short run
-tests/history_check: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+# the SYN edition's history (src/syn/history.c) beside the simulation, in
+# a world made as the window makes it (src/syn/genesis.c); the small build
+# merges its samples and epochs within a short run
+tests/history_check: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/history_check_small: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+tests/history_check_small: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
 
 # the colour build's .bgg reader and writer, for tests/colour.sh
@@ -162,8 +163,8 @@ COLOUR_SIM_OBJ = $(patsubst src/%.c,obj/colour/%.o,$(wildcard src/colour/sim/*.c
 
 # the same beside Color Mod's simulation (its lines are its clades, its
 # codes kept by its collector)
-tests/history_check_colour: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/palette.c \
-                            obj/colour/colour/io/bgw.o $(COLOUR_SIM_OBJ)
+tests/history_check_colour: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c \
+                            src/colour/io/bgg.c obj/colour/colour/io/bgw.o $(COLOUR_SIM_OBJ)
 	$(CC) -Isrc/colour $(CFLAGS) -DBIO_COLOUR -DBIO_NO_GUI -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
 tests/colour_bgg_tool: tests/colour_bgg_tool.c src/colour/io/bgg.c $(COLOUR_SIM_OBJ)
 	$(CC) -Isrc/colour $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)

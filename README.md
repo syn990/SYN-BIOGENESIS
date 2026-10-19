@@ -446,6 +446,15 @@ create randomly, import).
 - **Speed control:** see the table above. The Java window's FPS display
   shows its current frame delay (1000 ÷ delay), not a measured rate. This
   one measures.
+- **Making a big world:** the time it takes grows faster than the square
+  of the number of organisms, because each is placed clear of every one
+  placed before it. In 0.9 here, 20,000 take about 3 seconds and 50,000
+  about 35; on the same curve, 150,000 would take about 12 minutes. A world that takes more than a quarter of a
+  second is shown being made, with how far it has got. Esc starts it with
+  the organisms made so far, and closing the window quits. The parameters
+  dialog says, under the initial number, how long that many will take when
+  it is more than ten seconds. Made to the end, the world is the one the
+  original makes. This holds in both simulations and both interfaces.
 
 ## Color Mod 2.01
 
@@ -590,7 +599,7 @@ instead).
 | ![Charts](docs/screenshots/syn-stats-charts.png) | ![Epochs](docs/screenshots/syn-stats-epochs.png) | ![Timeline](docs/screenshots/syn-stats-timeline.png) |
 | Charts, hovered together | Epochs, their best species and champions | The lines' river, as shares |
 | ![Family tree](docs/screenshots/syn-stats-family.png) | ![Family tree, the best of each epoch](docs/screenshots/syn-stats-family-best.png) | ![Color Mod's family tree](docs/screenshots/syn-colour-family.png) |
-| The family tree: the species living now | The best of epochs 10 to 15, 15 steps from its root | Color Mod's, from its clades |
+| The family tree: the species living now, TAU-10 followed | The best of each epoch: GEXIDON-6, of a family that came from ORIOKIX | Color Mod's, from its clades |
 
 - **OVERVIEW:** the world now: time, living, corpses, lines living, the
   gases, the original's averages, mass extinctions and the most ever
@@ -630,8 +639,14 @@ instead).
 A click on any organism shown opens it in the genetic laboratory, and a
 right click copies its code. Esc or BACK returns to the world.
 
-The history starts when the world is created or opened; a world file
-doesn't carry it. It is recorded once a time unit (256 frames) for the
+The history starts when the world is created. Saving a world also writes
+a file beside it, its name and `.syn` (`world.bgw.syn`), with the history
+and the [family tree](#the-family-tree) and its names; opening the world
+reads it, and both go on as if the world had never been closed. The world
+file itself is the one the original saves. The sidecar records the world
+file's size and a hash of its bytes; if the world has since been saved by
+another program or replaced, or there is no sidecar, the history starts
+when the world is opened. It is recorded once a time unit (256 frames) for the
 whole run. Samples merge in pairs past 4,096 and epochs past 1,024, so a
 long run is kept at a coarser grain. A line is every organism descended
 from one founder: in Biogenesis 0.9, the roots of the family tree. Its
@@ -648,7 +663,11 @@ every frame while it records). It also checks that the recorder's books
 balance: every birth, death and infection falls in exactly one epoch; and
 the family tree's: every parent founded before its children, every living
 organism in a species and their counts the population's, each epoch's
-best kept, nothing kept that should have been forgotten.
+best kept, nothing kept that should have been forgotten, every family
+begun by an ancestor and every name given once. Every 64 time units it
+saves the tree and loads it back, which must change nothing: the world
+runs on identically and the tree saves the same bytes again. A damaged
+saved tree must be refused.
 Color Mod adds methane to the figures and the charts.
 
 ### The family tree
@@ -671,6 +690,24 @@ on the way: "6 to 7 arms", "mirroring on", "+ blue segment (8th)",
   whose ID is already a family path (its founder, then a step wherever the
   gene count or the symmetry changed), so its tree is read, not recorded,
   and survives saved worlds.
+- **Names:** species are grouped into families. A root of the tree begins
+  one, and so does a species whose plan has moved far enough from the plan
+  its family began with: in 0.9, four changes, counting each arm gained or
+  lost, mirroring turned on or off, and each segment added, removed or
+  recoloured as one; in Color Mod, three steps of its clade (each a change
+  of gene count or symmetry). A family is given the next of 500 names when
+  the first of its species has 5 living at once (and one in 50 of the
+  living): invented ones (VELORAX, ZEPHYRA, SILORN, KESTORA ...) with the
+  Greek letters among them, in a fixed mixed order, then the same again as
+  VELORAX II. Each species is numbered in its family when it gets there:
+  VELORAX-3. Until then a species is written as biologists write one not
+  yet named, VELORAX sp., or by its founder's number (#1234) while its
+  family has no name. Names are given once a time unit from the world
+  alone, so they are the same whatever was on screen. A box where a family
+  begins is marked NEW FAMILY, the card says which family a species is in
+  and which family that one came from, and the organism panel shows the
+  selected organism's species. A line is called by the name of the family
+  its root began (the VELORAX line).
 - **What is shown:** LIVING (the 40 biggest species alive now), BEST OF
   EACH EPOCH (each epoch's best, marked with its epoch), or EVERY NOTABLE
   (the 150 biggest that ever had 5 living at once and one in 50 of the
@@ -686,14 +723,16 @@ on the way: "6 to 7 arms", "mirroring on", "+ blue segment (8th)",
   (`WORLD-family-tTIME`; for a world never saved, in the folder the game
   started in): `family.dot`, rendered to `family.svg` and
   `family.png` if Graphviz is installed, a picture and a `.bgg` of every
-  species shown, and the best of each epoch compiled as
-  `epoch-NN-species-ID.bgg` with an index, `best-of-each-epoch.txt`.
+  species shown (`VELORAX-3.png`, `VELORAX-3.bgg`; one not numbered as
+  `species-FOUNDER-ID`), and the best of each epoch compiled as
+  `epoch-NN-NAME.bgg` with an index, `best-of-each-epoch.txt`.
 
 Species that never mattered are forgotten once they die out (most are
 one-off mutants): those that never had 5 living at once and one in 50 of
 the living, with nothing kept descending from them and best of no epoch.
-So the tree stays small however long the world runs. A world file
-doesn't carry the tree; it begins when the world is created or opened.
+So the tree stays small however long the world runs. The world's sidecar
+(see [Statistics](#statistics)) carries the tree with its names and
+numbers; without one, the tree begins when the world is opened.
 
 ### Looks
 
@@ -788,7 +827,11 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
 - the frame-by-frame comparison with the shipped jar
 - the SYN edition's history, for both simulations: the same world run with
   and without it hashes the same every frame and saves the same `.bgw`,
-  and its books add up
+  and its books add up; the recorded run's world is made an organism at a
+  time, as the window makes it, and the plain one's all at once; and the
+  history and tree, saved as a world's sidecar holds them, reset as an
+  opening resets them and loaded back, save the same bytes, while cut or
+  altered ones are refused
 - for Color Mod (`tests/colour.sh`): the same checks against the
   Color Mod jar for genetic codes, worlds and the simulation
 
@@ -816,6 +859,9 @@ is `menu`, `options` or `world` (the default when `SHOT_UI` is set), or
 `SYN_BIOGENESIS_SHOT_FAMILY` is `living`, `best` or `notable`,
 `SYN_BIOGENESIS_SHOT_FOCUS` follows the species with the most living, and
 `SYN_BIOGENESIS_SHOT_EXPORT` exports the tree as EXPORT does.
+`SYN_BIOGENESIS_GENESIS_SHOT=out.png` shows the "Creating world" screen at
+once and saves it, and `SYN_BIOGENESIS_GENESIS_STOP=N` presses Esc on its
+Nth frame.
 
 ## Credits
 

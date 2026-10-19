@@ -35,7 +35,18 @@
  *
  * Species that never mattered are forgotten once they die out: those that
  * never had FAM_NOTABLE living at once (and as much as one in 50 of the
- * living), with nothing kept descending from them, best of no epoch. */
+ * living), with nothing kept descending from them, best of no epoch.
+ *
+ * Names. Species are grouped into families: a root founds one, and so
+ * does a species whose plan has moved far enough from the plan its family
+ * began with (0.9: FAM_DIVERGE changes, counting arms gained or lost,
+ * mirroring, and genes added, removed or recoloured one each; Color Mod:
+ * FAM_DIVERGE_STEPS steps of its clade). A family is given
+ * the next of 500 names (syn/family_names.h: invented ones, the Greek
+ * letters among them; then the same again with II, III ...) when the
+ * first of its species becomes notable, and each species is numbered in
+ * its family when it does (VELORAX-3). Names are given once a time unit
+ * from the world alone, never from what is shown. */
 #ifndef SYN_FAMILY_H
 #define SYN_FAMILY_H
 
@@ -46,6 +57,12 @@
 #include "sim/world.h"
 
 #define FAM_NOTABLE 5
+#ifndef FAM_DIVERGE
+#define FAM_DIVERGE 4 /* 0.9: changes to the plan */
+#endif
+#ifndef FAM_DIVERGE_STEPS
+#define FAM_DIVERGE_STEPS 3 /* Color Mod: steps of a clade, each a change of gene count or symmetry */
+#endif
 
 typedef struct {
     uint32_t id;     /* 0.9: the mark in gc->lineage */
@@ -63,6 +80,10 @@ typedef struct {
     uint64_t key;    /* its plan (0.9) or its clade (Color Mod), hashed */
     uint8_t colour;  /* its founder's commonest palette slot */
     GeneticCode *gc; /* its founder's code (held); NULL for a Color Mod clade never seen alive */
+    uint32_t family; /* the species its family began with (its own id if it began one) */
+    int name_no;     /* a family's first species: the family's name, from 1 (0: not named yet) */
+    int number;      /* its number in its family (0: never notable) */
+    int numbered;    /* a family's first species: how many numbers its family has given */
 } Species;
 
 /* With the history's (syn_history_reset). */
@@ -89,6 +110,34 @@ uint32_t syn_family_top(int *alive);
 void syn_family_pin(uint32_t id, int d);
 /* Changes with every species founded, forgotten or counted. */
 unsigned syn_family_version(void);
+
+/* The species its family began with (itself for that one). */
+const Species *syn_family_head(const Species *s);
+/* The family its family came from (NULL for a root's). */
+const Species *syn_family_parent_head(const Species *s);
+/* How many families are named. */
+int syn_family_named(void);
+/* A family's name from its number: "VELORAX", "OMICRON II" ("" for 0). */
+void syn_family_title(int no, char *out, size_t n);
+/* Its name: "VELORAX-3", or "VELORAX" before it is numbered; "" while its
+ * family has no name. */
+void syn_family_name(const Species *s, char *out, size_t n);
+/* Its name ("VELORAX-3", "VELORAX sp." before it is numbered), else "#"
+ * and its founder's number. */
+void syn_family_label(const Species *s, char *out, size_t n);
+/* The 0.9 line or Color Mod clade founder of syn/history.h, as a species. */
+const Species *syn_family_line(uint32_t line);
+
+/* The whole tree as bytes, for saving beside a world: every species, its
+ * code and name, the counters, and (0.9) which species each organism's
+ * code and infecting code belong to. malloc'd; returns the length, 0 on
+ * failure. */
+size_t syn_family_save(const World *w, uint8_t **out);
+/* The tree saved for this world, in place of the one found at reset
+ * (call after syn_family_reset). The epochs' pins are in it: the history
+ * must not pin its epochs' best again. False (and the tree unchanged) if
+ * the bytes are not a tree saved by this simulation. */
+bool syn_family_load(World *w, const uint8_t *in, size_t n);
 
 /* What changed from its parent's plan ("6 to 7 arms, + blue segment
  * (8th)"); "" for a root. */

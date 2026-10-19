@@ -103,6 +103,9 @@ bool ui_popup_open_for(uint32_t owner);
 #ifdef BIO_SYN_EDITION
 /* Any popup menu is open (it takes Esc for itself). */
 bool ui_popup_showing(void);
+/* After a stretch in which events went elsewhere (a world being made):
+ * the mouse buttons held and the pointer as they are now. */
+void ui_input_resync(void);
 #endif
 /* The chosen item for owner, once (or -1). */
 int ui_popup_take(uint32_t owner);

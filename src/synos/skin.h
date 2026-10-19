@@ -83,6 +83,7 @@ const Theme *skin_theme(void);
 
 /* Everything drawn is multiplied by this (the menu fades in). */
 void skin_set_alpha(float a);
+float skin_alpha(void);
 
 void skin_tone_rgb(Tone t, Uint8 *r, Uint8 *g, Uint8 *b);
 /* A tone, or a palette colour, as an SDL_Color */

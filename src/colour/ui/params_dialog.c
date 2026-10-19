@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "sim/params.h"
+#include "syn/genesis_screen.h"
 #include "ui/app.h"
 
 typedef struct {
@@ -123,6 +124,11 @@ void params_draw(App *a)
         if (k_fields[i].tab == d->tab && (genes ? k_fields[i].type == 'i' : true))
             rows++;
     int line = rh + 4;
+    /* how long a world of the initial number takes to make, when it is
+     * long: under its field, in rows of its own */
+    for (int i = 0; i < N_FIELDS; i++)
+        if (k_fields[i].tab == d->tab && k_fields[i].off == offsetof(Params, initial_organisms))
+            rows += (syn_genesis_warning(0, 0, d->f[i], false) + line - 1) / line;
     int visible = body.h / line - (genes ? 1 : 0) - (d->tab == 0 ? 2 : 0);
     if (ui_hover(body) && ui_wheel_y())
         d->scroll -= ui_wheel_y();
@@ -172,6 +178,8 @@ void params_draw(App *a)
         if (f->suffix)
             ui_label_dim(c.x + 530, y + 4, f->suffix);
         y += line;
+        if (f->off == offsetof(Params, initial_organisms))
+            y += syn_genesis_warning(c.x + 10, y, d->f[i], true);
     }
     if (d->tab == 1 && y + 2 * line < body.y + body.h) {
         y += 6;

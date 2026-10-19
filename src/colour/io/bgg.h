@@ -25,10 +25,13 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "sim/genetic_code.h"
 
 bool bgg_write(const char *path, const GeneticCode *gc);
+/* The same to an open file. */
+void bgg_write_file(FILE *f, const GeneticCode *gc);
 /* NULL on failure, with a reason in err. */
 GeneticCode *bgg_read(const char *path, char *err, size_t errn);
 /* Parse from memory (used by tests). */

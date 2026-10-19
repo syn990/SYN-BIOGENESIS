@@ -734,6 +734,16 @@ bool ui_popup_showing(void)
 {
     return U.popup_open;
 }
+
+void ui_input_resync(void)
+{
+    int x, y;
+    Uint32 b = SDL_GetMouseState(&x, &y);
+    U.mx = x;
+    U.my = y;
+    for (int i = 1; i <= 3; i++)
+        U.down[i] = (b & SDL_BUTTON(i)) != 0;
+}
 #endif
 
 int ui_popup_take(uint32_t owner)

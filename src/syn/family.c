@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "io/bgg.h"
+#include "syn/family_names.h"
 #include "syn/palette.h"
 
 /* The species in the order they were founded, so a parent always comes
@@ -38,6 +40,7 @@ static struct {
     int pop;
     uint32_t top;
     int top_n;
+    int named; /* families named */
     unsigned version;
     bool started;
 } F = {.next_id = 1};
@@ -165,6 +168,54 @@ static int commonest(const Organism *o)
     return best;
 }
 
+/* How far a new species (begun by o) has moved from the plan its family
+ * began with. */
+#ifdef BIO_COLOUR
+#define DIVERGE FAM_DIVERGE_STEPS
+
+static int divergence(const Species *head, const Species *s, const Organism *o)
+{
+    (void)o;
+    /* each step of a clade is a change of gene count or symmetry */
+    return s->depth - head->depth;
+}
+#else
+#define DIVERGE FAM_DIVERGE
+
+static int divergence(const Species *head, const Species *s, const Organism *o)
+{
+    (void)s;
+    const GeneticCode *a = head->gc, *b = o ? o->gc : NULL;
+    if (!a || !b)
+        return DIVERGE;
+    int d = abs(a->symmetry - b->symmetry) + (a->mirror != b->mirror);
+    /* the genes' colours: insertions, deletions and recolourings */
+    int na = a->ngenes, nb = b->ngenes, stack[65] = {0};
+    int *row = nb < 65 ? stack : malloc((size_t)(nb + 1) * sizeof *row);
+    if (!row)
+        abort();
+    for (int j = 0; j <= nb; j++)
+        row[j] = j;
+    for (int i = 1; i <= na; i++) {
+        int diag = row[0];
+        row[0] = i;
+        for (int j = 1; j <= nb; j++) {
+            int up = row[j], v = diag + (a->genes[i - 1].color != b->genes[j - 1].color);
+            if (up + 1 < v)
+                v = up + 1;
+            if (row[j - 1] + 1 < v)
+                v = row[j - 1] + 1;
+            row[j] = v;
+            diag = up;
+        }
+    }
+    d += row[nb];
+    if (row != stack)
+        free(row);
+    return d;
+}
+#endif
+
 /* A new species; o (may be NULL) is the organism it begins with. */
 static Species *add(uint32_t parent, uint64_t key, int founder, const Organism *o, int64_t t)
 {
@@ -181,12 +232,17 @@ static Species *add(uint32_t parent, uint64_t key, int founder, const Organism *
     s->founder = founder;
     s->born = s->last_seen = s->peak_t = t;
     s->root = s->id;
+    s->family = s->id;
     Species *p = by_id(parent);
     if (p) {
         s->parent = p->id;
         s->root = p->root;
         s->depth = p->depth + 1;
         p->kids++;
+        /* its parent's family, until it has moved far enough to begin one */
+        const Species *head = by_id(p->family);
+        if (head && divergence(head, s, o) < DIVERGE)
+            s->family = head->id;
     }
     if (o) {
         s->members = 1;
@@ -337,6 +393,7 @@ static void release(void)
         map_rebuild();
     F.top = 0;
     F.top_n = 0;
+    F.named = 0;
     F.version++;
 }
 
@@ -385,10 +442,20 @@ void syn_family_frame(World *w)
     }
 }
 
-void syn_family_unit(World *w, int64_t t)
+/* Its number, and its family's name if it has none yet. */
+static void name(Species *s)
 {
-    if (!F.started)
+    Species *head = by_id(s->family);
+    if (!head || s->number)
         return;
+    if (!head->name_no)
+        head->name_no = ++F.named;
+    s->number = ++head->numbered;
+}
+
+/* The living counted: each species' alive and carriers, the most living. */
+static int count(World *w, int64_t t)
+{
     for (int i = 0; i < F.n; i++)
         F.sp[i].alive = F.sp[i].carriers = 0;
     int pop = 0;
@@ -415,7 +482,21 @@ void syn_family_unit(World *w, int64_t t)
     F.pop = pop;
     F.top = 0;
     F.top_n = 0;
+    for (int i = 0; i < F.n; i++)
+        if (F.sp[i].alive > F.top_n) {
+            F.top_n = F.sp[i].alive;
+            F.top = F.sp[i].id;
+        }
+    return pop;
+}
+
+void syn_family_unit(World *w, int64_t t)
+{
+    if (!F.started)
+        return;
+    int pop = count(w, t);
     bool forget = false;
+    /* in the order they were founded, so names come in that order */
     for (int i = 0; i < F.n; i++) {
         Species *s = &F.sp[i];
         if (s->alive > 0) {
@@ -425,11 +506,9 @@ void syn_family_unit(World *w, int64_t t)
                 s->peak = s->alive;
                 s->peak_t = t;
             }
-            if (s->peak >= FAM_NOTABLE && s->alive * 50 >= pop)
+            if (s->peak >= FAM_NOTABLE && s->alive * 50 >= pop) {
                 s->notable = true;
-            if (s->alive > F.top_n) {
-                F.top_n = s->alive;
-                F.top = s->id;
+                name(s);
             }
         } else if (s->carriers == 0) {
             s->extinct = true;
@@ -517,6 +596,397 @@ void syn_family_pin(uint32_t id, int d)
 unsigned syn_family_version(void)
 {
     return F.version;
+}
+
+/* ---- names ---- */
+
+const Species *syn_family_head(const Species *s)
+{
+    return s ? by_id(s->family) : NULL;
+}
+
+const Species *syn_family_parent_head(const Species *s)
+{
+    const Species *head = syn_family_head(s);
+    const Species *p = head ? by_id(head->parent) : NULL;
+    return p ? by_id(p->family) : NULL;
+}
+
+int syn_family_named(void)
+{
+    return F.named;
+}
+
+void syn_family_title(int no, char *out, size_t n)
+{
+    out[0] = '\0';
+    if (no <= 0)
+        return;
+    const int count = (int)(sizeof k_family_names / sizeof k_family_names[0]);
+    int round = (no - 1) / count + 1;
+    const char *g = k_family_names[(no - 1) % count];
+    if (round == 1) {
+        snprintf(out, n, "%s", g);
+        return;
+    }
+    /* the second time round VELORAX II, and so on */
+    static const struct {
+        int v;
+        const char *s;
+    } k_roman[] = {{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"},
+                   {40, "XL"},  {10, "X"},   {9, "IX"},   {5, "V"},    {4, "IV"},   {1, "I"}};
+    char r[32];
+    size_t k = 0;
+    for (size_t i = 0; i < sizeof k_roman / sizeof k_roman[0]; i++)
+        while (round >= k_roman[i].v && k + 3 < sizeof r) {
+            k += (size_t)snprintf(r + k, sizeof r - k, "%s", k_roman[i].s);
+            round -= k_roman[i].v;
+        }
+    snprintf(out, n, "%s %s", g, r);
+}
+
+void syn_family_name(const Species *s, char *out, size_t n)
+{
+    out[0] = '\0';
+    const Species *head = syn_family_head(s);
+    if (!head || !head->name_no)
+        return;
+    char fam[40];
+    syn_family_title(head->name_no, fam, sizeof fam);
+    if (s->number)
+        snprintf(out, n, "%s-%d", fam, s->number);
+    else
+        snprintf(out, n, "%s", fam);
+}
+
+void syn_family_label(const Species *s, char *out, size_t n)
+{
+    syn_family_name(s, out, n);
+    if (!s)
+        return;
+    if (!out[0])
+        snprintf(out, n, "#%d", s->founder);
+    else if (!s->number) {
+        /* as a biologist writes a species of a genus not yet named */
+        size_t k = strlen(out);
+        snprintf(out + k, n - k, " sp.");
+    }
+}
+
+const Species *syn_family_line(uint32_t line)
+{
+#ifdef BIO_COLOUR
+    char b[16];
+    int len = snprintf(b, sizeof b, "%u", line);
+    return by_key(fnv(FNV0, b, (size_t)len));
+#else
+    return by_id(line);
+#endif
+}
+
+/* ---- saved beside a world ----
+ *
+ * Little-endian: "SYNFAMLY", the format, the simulation (9: 0.9, 201:
+ * Color Mod), next_id, the names given, the species and, for 0.9, which
+ * species each organism's codes belong to. Loaded, next_id is the saved
+ * one (past every id read): the species the reset founded are gone and
+ * every organism's mark rewritten, so a world opened again numbers its
+ * species as if it had never stopped. */
+
+#define SAVE_MAGIC "SYNFAMLY"
+#define SAVE_FORMAT 1
+#ifdef BIO_COLOUR
+#define SAVE_SIM 201
+#else
+#define SAVE_SIM 9
+#endif
+
+typedef struct {
+    uint8_t *p;
+    size_t n, cap;
+} Out;
+
+static void put(Out *b, const void *v, size_t n)
+{
+    if (b->n + n > b->cap) {
+        size_t cap = b->cap ? b->cap : 4096;
+        while (cap < b->n + n)
+            cap *= 2;
+        b->p = realloc(b->p, cap);
+        if (!b->p)
+            abort();
+        b->cap = cap;
+    }
+    memcpy(b->p + b->n, v, n);
+    b->n += n;
+}
+
+static void put32(Out *b, uint32_t v)
+{
+    uint8_t x[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)};
+    put(b, x, 4);
+}
+
+static void put64(Out *b, uint64_t v)
+{
+    put32(b, (uint32_t)v);
+    put32(b, (uint32_t)(v >> 32));
+}
+
+typedef struct {
+    const uint8_t *p;
+    size_t n, at;
+    bool bad;
+} In;
+
+static const uint8_t *get(In *b, size_t n)
+{
+    if (b->bad || n > b->n - b->at) {
+        b->bad = true;
+        return NULL;
+    }
+    const uint8_t *p = b->p + b->at;
+    b->at += n;
+    return p;
+}
+
+static uint32_t get32(In *b)
+{
+    const uint8_t *x = get(b, 4);
+    return x ? (uint32_t)x[0] | (uint32_t)x[1] << 8 | (uint32_t)x[2] << 16 | (uint32_t)x[3] << 24 : 0;
+}
+
+static uint64_t get64(In *b)
+{
+    uint64_t lo = get32(b);
+    return lo | (uint64_t)get32(b) << 32;
+}
+
+size_t syn_family_save(const World *w, uint8_t **out)
+{
+    *out = NULL;
+    FILE *tmp = tmpfile();
+    if (!tmp)
+        return 0;
+    Out b = {0};
+    put(&b, SAVE_MAGIC, 8);
+    put32(&b, SAVE_FORMAT);
+    put32(&b, SAVE_SIM);
+    put32(&b, F.next_id);
+    put32(&b, (uint32_t)F.named);
+    put32(&b, (uint32_t)F.n);
+    for (int i = 0; i < F.n; i++) {
+        const Species *s = &F.sp[i];
+        put32(&b, s->id);
+        put32(&b, s->parent);
+        put32(&b, s->root);
+        put32(&b, s->family);
+        put32(&b, (uint32_t)s->depth);
+        put32(&b, (uint32_t)s->founder);
+        put64(&b, (uint64_t)s->born);
+        put64(&b, (uint64_t)s->last_seen);
+        put64(&b, (uint64_t)s->peak_t);
+        put32(&b, (uint32_t)s->peak);
+        put64(&b, (uint64_t)s->members);
+        put32(&b, (uint32_t)s->pins);
+        put32(&b, (uint32_t)s->name_no);
+        put32(&b, (uint32_t)s->number);
+        put32(&b, (uint32_t)s->numbered);
+        uint8_t flags[3] = {s->notable, s->extinct, s->colour};
+        put(&b, flags, 3);
+        put64(&b, s->key);
+        /* its code as its .bgg */
+        uint32_t len = 0;
+        if (s->gc) {
+            rewind(tmp);
+            bgg_write_file(tmp, s->gc);
+            long end = ftell(tmp);
+            len = end > 0 ? (uint32_t)end : 0;
+        }
+        put32(&b, len);
+        if (len) {
+            size_t at = b.n;
+            uint8_t z[256] = {0};
+            for (uint32_t k = 0; k < len; k += sizeof z)
+                put(&b, z, len - k < sizeof z ? len - k : sizeof z);
+            rewind(tmp);
+            if (fread(b.p + at, 1, len, tmp) != len) {
+                fclose(tmp);
+                free(b.p);
+                return 0;
+            }
+        }
+    }
+#ifdef BIO_COLOUR
+    (void)w;
+    put32(&b, 0);
+#else
+    /* the marks 0.9's file does not keep */
+    uint32_t m = 0;
+    for (int i = 0; i < w->norgs; i++)
+        m += !w->orgs[i]->removed && w->orgs[i]->gc;
+    put32(&b, m);
+    for (int i = 0; i < w->norgs; i++) {
+        const Organism *o = w->orgs[i];
+        if (o->removed || !o->gc)
+            continue;
+        put32(&b, (uint32_t)o->id);
+        put32(&b, o->gc->lineage);
+        put32(&b, o->infected_gc ? o->infected_gc->lineage : 0);
+    }
+#endif
+    fclose(tmp);
+    *out = b.p;
+    return b.n;
+}
+
+#ifndef BIO_COLOUR
+typedef struct {
+    int id;
+    uint32_t own, inf;
+} Mark;
+
+static int mark_cmp(const void *a, const void *b)
+{
+    int x = ((const Mark *)a)->id, y = ((const Mark *)b)->id;
+    return (x > y) - (x < y);
+}
+#endif
+
+bool syn_family_load(World *w, const uint8_t *in, size_t n)
+{
+    In b = {in, n, 0, false};
+    const uint8_t *magic = get(&b, 8);
+    if (!magic || memcmp(magic, SAVE_MAGIC, 8) != 0 || get32(&b) != SAVE_FORMAT || get32(&b) != SAVE_SIM)
+        return false;
+    uint32_t next_id = get32(&b);
+    int named = (int)get32(&b);
+    uint32_t count_ = get32(&b);
+    /* at least 91 bytes a species */
+    if (b.bad || count_ > (n - b.at) / 91)
+        return false;
+
+    /* all of it read before anything changes */
+    Species *sp = calloc(count_ ? count_ : 1, sizeof *sp);
+    if (!sp)
+        abort();
+    uint32_t i;
+    for (i = 0; i < count_ && !b.bad; i++) {
+        Species *s = &sp[i];
+        s->id = get32(&b);
+        s->parent = get32(&b);
+        s->root = get32(&b);
+        s->family = get32(&b);
+        s->depth = (int)get32(&b);
+        s->founder = (int)get32(&b);
+        s->born = (int64_t)get64(&b);
+        s->last_seen = (int64_t)get64(&b);
+        s->peak_t = (int64_t)get64(&b);
+        s->peak = (int)get32(&b);
+        s->members = (int64_t)get64(&b);
+        s->pins = (int)get32(&b);
+        s->name_no = (int)get32(&b);
+        s->number = (int)get32(&b);
+        s->numbered = (int)get32(&b);
+        const uint8_t *flags = get(&b, 3);
+        if (flags) {
+            s->notable = flags[0] != 0;
+            s->extinct = flags[1] != 0;
+            s->colour = flags[2] < SYN_NCOL ? flags[2] : 0;
+        }
+        s->key = get64(&b);
+        uint32_t len = get32(&b);
+        const uint8_t *xml = get(&b, len);
+        if (xml && len) {
+            char err[256];
+            s->gc = bgg_parse((const char *)xml, len, err, sizeof err);
+            if (!s->gc)
+                b.bad = true;
+        }
+        if (!s->id)
+            b.bad = true;
+        if (s->id >= next_id)
+            next_id = s->id + 1;
+    }
+    uint32_t m = get32(&b);
+    void *marks = NULL;
+#ifdef BIO_COLOUR
+    if (m != 0)
+        b.bad = true;
+#else
+    if (!b.bad && m > (n - b.at) / 12)
+        b.bad = true;
+    if (!b.bad) {
+        Mark *mk = malloc((m ? m : 1) * sizeof *mk);
+        if (!mk)
+            abort();
+        for (uint32_t k = 0; k < m; k++) {
+            mk[k].id = (int)get32(&b);
+            mk[k].own = get32(&b);
+            mk[k].inf = get32(&b);
+            if (mk[k].own >= next_id)
+                next_id = mk[k].own + 1;
+            if (mk[k].inf >= next_id)
+                next_id = mk[k].inf + 1;
+        }
+        marks = mk;
+    }
+#endif
+    if (b.bad || b.at != n) {
+        for (uint32_t k = 0; k < i; k++)
+            hold(&sp[k].gc, NULL);
+        free(sp);
+        free(marks);
+        return false;
+    }
+
+    /* the tree found at reset gives way */
+    release();
+    free(F.sp);
+    F.sp = sp;
+    F.n = F.cap = (int)count_;
+    if (!F.cap) {
+        free(F.sp);
+        F.sp = NULL;
+    }
+    F.next_id = next_id;
+    F.named = named;
+    map_rebuild();
+    for (int k = 0; k < F.n; k++) {
+        Species *p = by_id(F.sp[k].parent);
+        if (p)
+            p->kids++;
+    }
+#ifndef BIO_COLOUR
+    /* each code's species again, even a forgotten species' (a corpse's):
+     * its id is never given again; codes not in the file are placed anew */
+    Mark *mk = marks;
+    qsort(mk, m, sizeof *mk, mark_cmp);
+    for (int k = 0; k < w->norgs; k++) {
+        Organism *o = w->orgs[k];
+        if (o->gc)
+            o->gc->lineage = 0;
+        if (o->infected_gc)
+            o->infected_gc->lineage = 0;
+    }
+    for (int k = 0; k < w->norgs; k++) {
+        Organism *o = w->orgs[k];
+        Mark key = {.id = o->id};
+        const Mark *at = o->removed ? NULL : bsearch(&key, mk, m, sizeof *mk, mark_cmp);
+        if (!at)
+            continue;
+        if (o->gc)
+            o->gc->lineage = at->own;
+        if (o->infected_gc)
+            o->infected_gc->lineage = at->inf;
+    }
+#endif
+    free(marks);
+    F.started = true;
+    F.seen_next = w->next_id;
+    count(w, w->stats.time);
+    F.version++;
+    return true;
 }
 
 /* ---- in words ---- */

@@ -34,7 +34,9 @@
 #include "io/bgg.h"
 #include "io/bgw.h"
 #include "sim/params.h"
+#include "syn/genesis_screen.h"
 #include "syn/history.h"
+#include "syn/sidecar.h"
 #include "syn/stats_screen.h"
 #include "syn/syn.h"
 #include "synos/synos.h"
@@ -54,6 +56,9 @@ static int g_switch;
 static bool g_entered;
 /* SYN-OS: a status message is on screen (it fades, so keep drawing) */
 static bool g_toast_shown;
+/* how the last new world's making ended (syn/genesis_screen.h) */
+static SynGenesisEnd g_genesis_end;
+static void quit_now(App *a);
 
 /* ---- small helpers ---- */
 
@@ -130,10 +135,23 @@ static void new_world(App *a)
     syn_world_reset();
     a->selected = NULL;
     a->tracked = NULL;
-    world_genesis(&a->world);
+    /* made a little at a time, shown being made when it takes a while */
+    SynGenesis g;
+    SynGenesisEnd end = g_genesis_end = syn_genesis_run(&g, &a->world, a->ren);
     syn_history_reset(&a->world, false);
     wv_center_on(&a->view, &a->world, a->world.width / 2.0, a->world.height / 2.0);
     a->active = true;
+    if (end == SYN_GENESIS_QUIT) {
+        g_switch = 0;
+        quit_now(a);
+        return;
+    }
+    if (end == SYN_GENESIS_STOPPED) {
+        char msg[160];
+        syn_genesis_stopped_text(&g, msg, sizeof msg);
+        app_set_status(a, msg);
+        return;
+    }
     app_set_status(a, "New world created");
 }
 
@@ -163,6 +181,8 @@ static bool save_world_to(App *a, const char *path)
 {
     char err[256];
     if (bgw_save(&a->world, path, err, sizeof err)) {
+        /* the history and family tree, beside it */
+        syn_sidecar_save(&a->world, path);
         app_set_status(a, "Writing completed");
         return true;
     }
@@ -243,6 +263,7 @@ static void do_file_action(App *a, FilePurpose purpose, const char *path)
         if (bgw_load(&a->world, path, err, sizeof err)) {
             syn_world_reset();
             syn_history_reset(&a->world, true);
+            syn_sidecar_load(&a->world, path);
             {
                 const char *base = strrchr(path, '/');
                 char what[300];
@@ -1317,10 +1338,20 @@ static Action synos_info_panel(App *a, int H)
     const char *state = !o->alive ? "DEAD" : a->tracked == o ? "TRACKING" : "ALIVE";
     float sw = skin_text(fo->small_bold, state, x0 + hw + 14, y + 5,
                          !o->alive ? TONE_WARN : a->tracked == o ? TONE_ACCENT : TONE_GOOD, ALIGN_LEFT);
+    /* its species, as the family tree names it, at the right */
+    char sp[64];
+    syn_stats_species(o, sp, sizeof sp);
+    float spw = 0;
+    if (sp[0]) {
+        float rx = (float)(r.x + r.w - 14);
+        float nw = skin_text(fo->bold, sp, rx, y + 3, TONE_TEXT, ALIGN_RIGHT);
+        spw = nw + 8 + skin_text(fo->small_bold, "SPECIES", rx - nw - 8, y + 6, TONE_MUTED, ALIGN_RIGHT) + 20;
+    }
     /* Color Mod's clade, its family as it names it */
     char clade[300], fit[300];
     snprintf(clade, sizeof clade, "clade %s", o->gc->clade_id ? o->gc->clade_id : "-1");
-    skin_text(fo->small, skin_fit(fo->small, clade, (float)(r.x + r.w) - 14 - (x0 + hw + sw + 28), fit, sizeof fit),
+    skin_text(fo->small,
+              skin_fit(fo->small, clade, (float)(r.x + r.w) - 14 - spw - (x0 + hw + sw + 28), fit, sizeof fit),
               x0 + hw + sw + 28, y + 5, TONE_MUTED, ALIGN_LEFT);
     y += skin_text_height(fo->heading) + 4;
     struct {
@@ -1589,6 +1620,7 @@ static void shot_prepare(App *a, const char *ui)
             fprintf(stderr, "%s: %s\n", load, err);
         wv_clamp(&a->view, &a->world);
         syn_history_reset(&a->world, true);
+        syn_sidecar_load(&a->world, load);
     }
     const char *sim = getenv("SYN_BIOGENESIS_SHOT_SIM");
     long n = sim ? strtol(sim, NULL, 10) : 0;
@@ -1798,6 +1830,7 @@ int app_run(void)
     int wh = P.window_height > 480 ? P.window_height : 760;
     g_switch = 0;
     g_entered = false;
+    g_genesis_end = SYN_GENESIS_DONE;
     /* the window Biogenesis 0.9 had, if it ran first (host.h) */
     a->window = bio_host.window;
     if (a->window) {
@@ -1858,8 +1891,11 @@ int app_run(void)
     SDL_GetRendererOutputSize(a->ren, &W, &H);
     a->view.view = (SDL_Rect){0, MENU_H + TOOL_H, W, H - MENU_H - TOOL_H - STATUS_H};
     new_world(a);
-    a->status[0] = '\0';
-    a->running = true;
+    /* stopped part way, it says so */
+    if (g_genesis_end != SYN_GENESIS_STOPPED)
+        a->status[0] = '\0';
+    /* the window was closed while it was being made */
+    a->running = g_genesis_end != SYN_GENESIS_QUIT;
     a->last_tick = SDL_GetPerformanceCounter();
 
     const char *shot = getenv("SYN_BIOGENESIS_SHOT");

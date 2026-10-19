@@ -28,6 +28,9 @@
 
 #include "sim/params.h"
 #include "ui/app.h"
+#ifdef BIO_SYN_EDITION
+#include "syn/genesis_screen.h"
+#endif
 
 typedef enum { F_INT, F_DBL } FType;
 
@@ -186,6 +189,11 @@ void params_draw(App *a)
         ui_textfield(ui_id("pf", (uint32_t)i), (SDL_Rect){c.x + 360, y, 160, rh}, d->f[i],
                      sizeof d->f[i]);
         y += rh + 8;
+#ifdef BIO_SYN_EDITION
+        /* how long a world of that many takes to make, when it is long */
+        if (f->off == offsetof(Params, initial_organisms))
+            y += syn_genesis_warning(c.x + 10, y, d->f[i], true);
+#endif
     }
     if (d->tab == T_GENERAL) {
         y += 6;

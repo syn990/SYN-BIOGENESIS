@@ -10,6 +10,8 @@
  * of the whole world every frame and the random generator at the end, and
  * saves it. The two runs must print and save the same, byte for byte: the
  * history only reads the world (and marks lineage, which nothing reads).
+ * The recorded run's world is made as the window makes it, an organism at
+ * a time (syn/genesis.h), the plain one's by world_genesis.
  * With "history" it also checks the history's own books at every time
  * unit: samples in time order, epochs end to end, every birth, death and
  * infection counted in exactly one epoch, events in time order; and the
@@ -28,6 +30,7 @@
 #include "sim/params.h"
 #include "sim/world.h"
 #include "syn/family.h"
+#include "syn/genesis.h"
 #include "syn/history.h"
 
 #ifndef HIST_CAP
@@ -153,6 +156,30 @@ static void family_books(const World *w)
         CHECK(!s->extinct || s->notable || s->kids || s->pins, "species %u should have been forgotten", s->id);
         alive += s->alive;
         pins += s->pins;
+
+        /* its family: begun by an ancestor (or itself), named in order */
+        const Species *head = syn_family_head(s), *a = s;
+        while (a && a != head)
+            a = syn_family_get(a->parent);
+        CHECK(head && a == head && head->family == head->id, "species %u: family %u not an ancestor's", s->id,
+              s->family);
+        if (s->parent) {
+            const Species *p = syn_family_get(s->parent);
+            CHECK(!p || s->family == p->family || s->family == s->id, "species %u: family %u, parent's %u", s->id,
+                  s->family, p ? p->family : 0);
+        }
+        CHECK(!s->notable || s->number > 0, "notable species %u has no number", s->id);
+        if (s->number && head)
+            CHECK(head->name_no > 0 && s->number <= head->numbered, "species %u: number %d, family %d of %d", s->id,
+                  s->number, head->name_no, head->numbered);
+        CHECK(s->name_no <= syn_family_named() && (!s->name_no || s->family == s->id),
+              "species %u: name %d of %d", s->id, s->name_no, syn_family_named());
+        for (int j = i + 1; j < n; j++) {
+            const Species *t = syn_family_at(j);
+            CHECK(!s->name_no || t->name_no != s->name_no, "species %u and %u share name %d", s->id, t->id, s->name_no);
+            CHECK(!s->number || t->family != s->family || t->number != s->number, "species %u and %u both %d",
+                  s->id, t->id, s->number);
+        }
     }
     for (int i = 0; i < w->norgs; i++) {
         const Organism *o = w->orgs[i];
@@ -170,6 +197,59 @@ static void family_books(const World *w)
             CHECK(syn_family_get(hi->epochs[i].best) != NULL, "epoch %d's best %u forgotten", i, hi->epochs[i].best);
         }
     CHECK(pins == best, "%d pins for %d epochs' bests", pins, best);
+}
+
+/* Saved and loaded back, the tree saves the same; damaged, it is refused
+ * and left as it was. */
+static void family_round_trip(World *w, bool damaged)
+{
+    uint8_t *a = NULL, *b = NULL;
+    size_t na = syn_family_save(w, &a);
+    CHECK(na > 0, "the family tree did not save");
+    if (damaged) {
+        size_t cut[] = {0, 7, 8, 20, na / 3, na / 2, na - 1};
+        for (size_t i = 0; i < sizeof cut / sizeof cut[0]; i++)
+            CHECK(cut[i] >= na || !syn_family_load(w, a, cut[i]), "a family tree cut to %zu bytes loaded", cut[i]);
+        a[9] ^= 0x55;
+        CHECK(!syn_family_load(w, a, na), "a family tree of another format loaded");
+        a[9] ^= 0x55;
+    }
+    CHECK(syn_family_load(w, a, na), "the family tree did not load back");
+    size_t nb = syn_family_save(w, &b);
+    CHECK(nb == na && memcmp(a, b, na) == 0, "the family tree saved %zu bytes, then %zu different", na, nb);
+    free(a);
+    free(b);
+}
+
+/* The history with the tree, as a world's sidecar keeps them
+ * (syn/sidecar.h): after the reset a world's opening makes, loaded back,
+ * both save the same; damaged, they are refused and nothing changes. */
+static void history_round_trip(World *w, bool damaged)
+{
+    uint8_t *h1 = NULL, *f1 = NULL, *h2 = NULL, *f2 = NULL;
+    size_t hn = syn_history_save(&h1), fn = syn_family_save(w, &f1);
+    CHECK(hn > 0 && fn > 0, "the history did not save");
+    syn_history_reset(w, true);
+    if (damaged && hn > 0 && fn > 0) {
+        size_t cut[] = {0, 7, 8, 40, hn / 3, hn / 2, hn - 1};
+        for (size_t i = 0; i < sizeof cut / sizeof cut[0]; i++)
+            CHECK(cut[i] >= hn || !syn_history_load(w, h1, cut[i], f1, fn, false),
+                  "a history cut to %zu bytes loaded", cut[i]);
+        CHECK(!syn_history_load(w, h1, hn, f1, fn - 1, false), "a history with a cut tree loaded");
+        h1[12] ^= 0x55;
+        CHECK(!syn_history_load(w, h1, hn, f1, fn, false), "a history of the other simulation loaded");
+        h1[12] ^= 0x55;
+    }
+    CHECK(syn_history_load(w, h1, hn, f1, fn, false), "the history did not load back");
+    size_t hn2 = syn_history_save(&h2), fn2 = syn_family_save(w, &f2);
+    CHECK(hn2 == hn && memcmp(h1, h2, hn) == 0, "the history saved %zu bytes, then %zu different",
+          hn, hn2);
+    CHECK(fn2 == fn && memcmp(f1, f2, fn) == 0,
+          "loaded with the history, the tree saved %zu bytes, then %zu different", fn, fn2);
+    free(h1);
+    free(f1);
+    free(h2);
+    free(f2);
 }
 
 static void removed(void *ud, Organism *o)
@@ -201,7 +281,14 @@ int main(int argc, char **argv)
     jr_set_seed(&g_rng, strtoll(argv[2], NULL, 10));
     World w;
     world_init(&w);
-    world_genesis(&w);
+    if (record) {
+        SynGenesis g;
+        syn_genesis_begin(&g, &w);
+        while (syn_genesis_next(&g))
+            ;
+    } else {
+        world_genesis(&w);
+    }
     if (record) {
         w.on_remove = removed;
         birth0 = w.stats.birth_sum;
@@ -217,9 +304,20 @@ int main(int argc, char **argv)
             if (w.nframes == 0) {
                 books(&w);
                 family_books(&w);
+                /* every 64 time units: the world must run on as if never saved */
+                if (w.stats.time % 64 == 0)
+                    family_round_trip(&w, w.stats.time % 1024 == 0);
+                /* and between, the whole history, as a sidecar holds it */
+                if (w.stats.time % 64 == 32)
+                    history_round_trip(&w, w.stats.time % 1024 == 32);
             }
         }
         printf("%ld %016" PRIx64 "\n", f, world_hash(&w));
+    }
+    /* and once at the end, before the world is saved and compared */
+    if (record) {
+        family_round_trip(&w, true);
+        history_round_trip(&w, true);
     }
     printf("rng %016" PRIx64 "\n", g_rng.seed);
     char err[256];
@@ -232,8 +330,19 @@ int main(int argc, char **argv)
         int roots = 0;
         for (int i = 0; i < syn_family_count(); i++)
             roots += syn_family_at(i)->parent == 0;
+        int named = 0, most = 0;
+        for (int i = 0; i < syn_family_count(); i++) {
+            named += syn_family_at(i)->number > 0;
+            if (syn_family_at(i)->numbered > most)
+                most = syn_family_at(i)->numbered;
+        }
         fprintf(stderr, "history: %d samples (every %d units), %d epochs of %d units, %d events, %d species kept (%d roots)\n",
                 hi->n, hi->stride, hi->nepochs, hi->epoch_base, hi->nev, syn_family_count(), roots);
+        char last[48] = "none";
+        if (syn_family_named())
+            syn_family_title(syn_family_named(), last, sizeof last);
+        fprintf(stderr, "names: %d families (to %s), %d species numbered, at most %d in one family\n",
+                syn_family_named(), last, named, most);
         syn_history_free();
     }
     world_free(&w);

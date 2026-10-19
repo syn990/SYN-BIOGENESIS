@@ -20,6 +20,7 @@
 /tools/being/being
 /tools/being/build/
 *.sbw
+*.syn
 *.bgg
 gmon.out
 __pycache__/

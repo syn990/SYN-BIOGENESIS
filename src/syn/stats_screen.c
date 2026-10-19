@@ -223,6 +223,17 @@ static void code_thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const cha
     }
 }
 
+/* A line by the name of the family its root began ("VELORAX"), else "#"
+ * and its founder's number. */
+static void line_label(const Line *l, char *out, size_t n)
+{
+    const Species *head = syn_family_head(syn_family_line(l->id));
+    if (head && head->name_no)
+        syn_family_title(head->name_no, out, n);
+    else
+        snprintf(out, n, "#%d", l->founder);
+}
+
 /* A champion: what it is the best at, its body, its figure. */
 static void champion_tile(App *a, UIRect r, ChampionKind k, const Champion *c, uint32_t id,
                           const char *title)
@@ -238,9 +249,11 @@ static void champion_tile(App *a, UIRect r, ChampionKind k, const Champion *c, u
     char tip[200] = "";
     if (c->gc) {
         const Line *l = syn_history_line(c->line);
-        char lt[48] = "";
-        if (l)
-            snprintf(lt, sizeof lt, ", line #%d", l->founder);
+        char lt[48] = "", ln[40];
+        if (l) {
+            line_label(l, ln, sizeof ln);
+            snprintf(lt, sizeof lt, ", line %s", ln);
+        }
         char v[32];
         syn_champion_value(k, c->value, v, sizeof v);
         snprintf(tip, sizeof tip, "Organism #%d, generation %d%s: %s at t %lld%s. Click for its genes.",
@@ -753,10 +766,11 @@ static void species_tile(App *a, UIRect r, const Epoch *ep, uint32_t id)
         }
         if (hot(th)) {
             skin_fill(th, skin_theme()->accent, 0.12f);
-            char plan[160], tip[240];
+            char plan[160], tip[300], nm[64];
             syn_family_plan(s->gc, plan, sizeof plan);
-            snprintf(tip, sizeof tip, "The epoch's best species, #%d: %d living at once. %s. Click to see its family.",
-                     s->founder, ep->best_n, plan);
+            syn_family_label(s, nm, sizeof nm);
+            snprintf(tip, sizeof tip, "The epoch's best species, %s (#%d): %d living at once. %s. Click to see its family.",
+                     nm, s->founder, ep->best_n, plan);
             ui_tooltip(tip);
             if (ui_pressed(sdl(th), 1)) {
                 S.tab = TAB_FAMILY;
@@ -773,11 +787,14 @@ static void species_tile(App *a, UIRect r, const Epoch *ep, uint32_t id)
     skin_text(fo->bold, v, r.x, y, TONE_TEXT, ALIGN_LEFT);
     y += skin_text_height(fo->bold) - 2;
     if (ep->best) {
-        if (s)
-            snprintf(buf, sizeof buf, "#%d%s", s->founder, s->alive > 0 ? "" : "  \xe2\x80\xa0");
-        else
+        char nm[56], fit_[64];
+        if (s) {
+            syn_family_label(s, nm, sizeof nm);
+            snprintf(buf, sizeof buf, "%s%s", nm, s->alive > 0 ? "" : "  \xe2\x80\xa0");
+        } else {
             snprintf(buf, sizeof buf, "forgotten");
-        skin_text(fo->small, buf, r.x, y, TONE_MUTED, ALIGN_LEFT);
+        }
+        skin_text(fo->small, skin_fit(fo->small, buf, r.w, fit_, sizeof fit_), r.x, y, TONE_MUTED, ALIGN_LEFT);
     }
 }
 
@@ -851,7 +868,9 @@ static float tab_epochs(App *a, UIRect area, float y0, const History *hi)
         const Line *l = syn_history_line(ep.lead_line);
         if (l && ep.lead_n > 0) {
             fmt_num(b2, sizeof b2, ep.lead_n);
-            snprintf(buf, sizeof buf, "led by the line of #%d (%s living)", l->founder, b2);
+            char ln[40];
+            line_label(l, ln, sizeof ln);
+            snprintf(buf, sizeof buf, "led by line %s (%s living)", ln, b2);
             skin_text(fo->small, skin_fit(fo->small, buf, room, fit, sizeof fit), x, y, TONE_MUTED,
                       ALIGN_LEFT);
             y += skin_text_height(fo->small) + 2;
@@ -1031,8 +1050,8 @@ static void river(UIRect r, const History *hi)
             const Line *l = syn_history_line(pick[q]);
             float thick = yb[j] - ya[j];
             if (l && thick >= 15) {
-                char nm[24];
-                snprintf(nm, sizeof nm, "#%d", l->founder);
+                char nm[40];
+                line_label(l, nm, sizeof nm);
                 float lw = skin_text_width(fo->small_bold, nm) + 10, lh = skin_text_height(fo->small_bold);
                 float tx = fminf(fmaxf(xs[j] - lw / 2, plot.x + 2), plot.x + plot.w - lw - 2);
                 float ty = (ya[j] + yb[j]) / 2 - lh / 2;
@@ -1088,8 +1107,11 @@ static void river(UIRect r, const History *hi)
         fmt_num(pv, sizeof pv, s[best].pop);
         int k = snprintf(tip, sizeof tip, "%s  %s living", tt, pv);
         const Line *l = s[best].top_n[0] > 0 ? syn_history_line(s[best].top_line[0]) : NULL;
-        if (l)
-            snprintf(tip + k, sizeof tip - (size_t)k, "  biggest line #%d (%.0f)", l->founder, s[best].top_n[0]);
+        if (l) {
+            char ln[40];
+            line_label(l, ln, sizeof ln);
+            snprintf(tip + k, sizeof tip - (size_t)k, "  biggest line %s (%.0f)", ln, s[best].top_n[0]);
+        }
         ui_tooltip(tip);
     }
     free(xs);
@@ -1368,6 +1390,15 @@ void syn_stats_family(const Organism *o)
     S.tab = TAB_FAMILY;
     syn_family_focus(syn_family_of(o));
     synos_set_screen(SYNOS_STATS);
+}
+
+void syn_stats_species(const Organism *o, char *out, size_t n)
+{
+    const Species *s = syn_family_get(syn_family_of(o));
+    if (s)
+        syn_family_label(s, out, n);
+    else
+        out[0] = '\0';
 }
 
 void syn_stats_free(void)

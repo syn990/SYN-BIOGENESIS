@@ -102,6 +102,10 @@ void skin_set_alpha(float a) {
     g_alpha = a;
 }
 
+float skin_alpha(void) {
+    return g_alpha;
+}
+
 void skin_tone_rgb(Tone t, Uint8 *r, Uint8 *g, Uint8 *b) {
     skin_theme();
     *r = g_tones[t].r;

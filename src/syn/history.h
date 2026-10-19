@@ -170,4 +170,14 @@ void syn_champion_value(ChampionKind k, double v, char *out, size_t n);
  * (borrowed, not held). Returns false when no recorded epoch overlaps it. */
 bool syn_history_merge(int64_t t0, int64_t t1, Epoch *out);
 
+/* The history as bytes, to keep beside a saved world (syn/sidecar.h):
+ * malloc'd, with their length; 0 when there is none. */
+size_t syn_history_save(uint8_t **out);
+/* After syn_history_reset(w, true) on the world it was saved with: the
+ * history and the family tree (syn_family_save's bytes) back as they were,
+ * and with note, its opening on the timeline. False, with nothing
+ * changed, for bytes that don't read well. */
+bool syn_history_load(World *w, const uint8_t *in, size_t n, const uint8_t *family,
+                      size_t family_n, bool note);
+
 #endif

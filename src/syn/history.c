@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "io/bgg.h"
 #include "syn/family.h"
 
 #ifndef HIST_CAP
@@ -968,4 +969,616 @@ void syn_champion_value(ChampionKind k, double v, char *out, size_t n)
     }
     (void)k;
     num(out, n, v);
+}
+
+/* ---- saved with the world (syn/sidecar.h) ----
+ *
+ * Every field, little-endian, floats by their bits; the codes the
+ * champions and events hold once each, as .bgg text, and referred to by
+ * number. The world's statistics are saved in the world file, and the
+ * totals and detectors here are read against them, so a world saved and
+ * opened again records on as if it had never stopped. */
+
+#define HSAVE_MAGIC "SYNHIST1"
+#define HSAVE_FORMAT 1
+#ifdef BIO_COLOUR
+#define HSAVE_SIM 2
+#else
+#define HSAVE_SIM 1
+#endif
+
+typedef struct {
+    uint8_t *p;
+    size_t n, cap;
+} Out;
+
+static void put(Out *b, const void *v, size_t n)
+{
+    if (b->n + n > b->cap) {
+        size_t cap = b->cap ? b->cap : 4096;
+        while (cap < b->n + n)
+            cap *= 2;
+        b->p = realloc(b->p, cap);
+        if (!b->p)
+            abort();
+        b->cap = cap;
+    }
+    memcpy(b->p + b->n, v, n);
+    b->n += n;
+}
+
+static void put32(Out *b, uint32_t v)
+{
+    uint8_t x[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24)};
+    put(b, x, 4);
+}
+
+static void put64(Out *b, uint64_t v)
+{
+    put32(b, (uint32_t)v);
+    put32(b, (uint32_t)(v >> 32));
+}
+
+static void putf(Out *b, float v)
+{
+    uint32_t u;
+    memcpy(&u, &v, 4);
+    put32(b, u);
+}
+
+static void putd(Out *b, double v)
+{
+    uint64_t u;
+    memcpy(&u, &v, 8);
+    put64(b, u);
+}
+
+static void putstr(Out *b, const char *s)
+{
+    size_t n = strlen(s);
+    put32(b, (uint32_t)n);
+    put(b, s, n);
+}
+
+typedef struct {
+    const uint8_t *p;
+    size_t n, at;
+    bool bad;
+} In;
+
+static const uint8_t *get(In *b, size_t n)
+{
+    if (b->bad || n > b->n - b->at) {
+        b->bad = true;
+        return NULL;
+    }
+    const uint8_t *p = b->p + b->at;
+    b->at += n;
+    return p;
+}
+
+static uint32_t get32(In *b)
+{
+    const uint8_t *x = get(b, 4);
+    return x ? (uint32_t)x[0] | (uint32_t)x[1] << 8 | (uint32_t)x[2] << 16 | (uint32_t)x[3] << 24 : 0;
+}
+
+static uint64_t get64(In *b)
+{
+    uint64_t lo = get32(b);
+    return lo | (uint64_t)get32(b) << 32;
+}
+
+static float getf(In *b)
+{
+    uint32_t u = get32(b);
+    float v;
+    memcpy(&v, &u, 4);
+    return v;
+}
+
+static double getd(In *b)
+{
+    uint64_t u = get64(b);
+    double v;
+    memcpy(&v, &u, 8);
+    return v;
+}
+
+static void getstr(In *b, char *out, size_t cap)
+{
+    uint32_t n = get32(b);
+    const uint8_t *s = n < cap ? get(b, n) : NULL;
+    if (!s) {
+        b->bad = true;
+        out[0] = '\0';
+        return;
+    }
+    memcpy(out, s, n);
+    out[n] = '\0';
+}
+
+/* The codes held, each once: pointer -> number + 1 */
+typedef struct {
+    GeneticCode **key;
+    int *val;
+    int cap;
+    GeneticCode **list;
+    int n;
+} CodeSet;
+
+static unsigned ptr_hash(const void *p)
+{
+    uint64_t k = (uint64_t)(uintptr_t)p;
+    k ^= k >> 33;
+    k *= 0xff51afd7ed558ccdull;
+    k ^= k >> 33;
+    return (unsigned)k;
+}
+
+static int code_ref(CodeSet *c, GeneticCode *gc)
+{
+    if (!gc)
+        return 0;
+    unsigned m = (unsigned)c->cap - 1, h = ptr_hash(gc) & m;
+    while (c->key[h]) {
+        if (c->key[h] == gc)
+            return c->val[h];
+        h = (h + 1) & m;
+    }
+    c->key[h] = gc;
+    c->list[c->n] = gc;
+    c->val[h] = ++c->n;
+    return c->val[h];
+}
+
+static void put_champion(Out *b, CodeSet *codes, const Champion *c)
+{
+    putd(b, c->value);
+    put32(b, (uint32_t)c->id);
+    put32(b, (uint32_t)c->generation);
+    put32(b, c->line);
+    put64(b, (uint64_t)c->t);
+    uint8_t f[2] = {c->died, c->colour};
+    put(b, f, 2);
+    put32(b, (uint32_t)code_ref(codes, c->gc));
+}
+
+size_t syn_history_save(uint8_t **out)
+{
+    *out = NULL;
+    if (!H.started)
+        return 0;
+    int holders = H.nepochs * CH_COUNT + H.nev;
+    CodeSet codes = {0};
+    codes.cap = 64;
+    while (codes.cap < 2 * (holders + 1))
+        codes.cap *= 2;
+    codes.key = calloc((size_t)codes.cap, sizeof *codes.key);
+    codes.val = calloc((size_t)codes.cap, sizeof *codes.val);
+    codes.list = calloc((size_t)holders + 1, sizeof *codes.list);
+    if (!codes.key || !codes.val || !codes.list)
+        abort();
+    for (int i = 0; i < H.nepochs; i++)
+        for (int k = 0; k < CH_COUNT; k++)
+            code_ref(&codes, H.epochs[i].ch[k].gc);
+    for (int i = 0; i < H.nev; i++)
+        code_ref(&codes, H.ev[i].gc);
+
+    Out b = {0};
+    put(&b, HSAVE_MAGIC, 8);
+    put32(&b, HSAVE_FORMAT);
+    put32(&b, HSAVE_SIM);
+    put32(&b, HIST_CAP);
+    put32(&b, EPOCHS_CAP);
+    put32(&b, HIST_COLOURS);
+    put32(&b, HIST_TOP);
+    put32(&b, CH_COUNT);
+
+    put32(&b, (uint32_t)codes.n);
+    for (int i = 0; i < codes.n; i++) {
+        char *xml = NULL;
+        size_t len = 0;
+        FILE *m = open_memstream(&xml, &len);
+        if (!m)
+            abort();
+        bgg_write_file(m, codes.list[i]);
+        fclose(m);
+        put32(&b, (uint32_t)len);
+        put(&b, xml, len);
+        free(xml);
+    }
+
+    put32(&b, (uint32_t)H.n);
+    put32(&b, (uint32_t)H.stride);
+    put64(&b, (uint64_t)H.commit_t);
+    int64_t totals[6] = {H.birth0, H.death0, H.inf0, H.ubirth0, H.udeath0, H.uinf0};
+    for (int i = 0; i < 6; i++)
+        put64(&b, (uint64_t)totals[i]);
+    put32(&b, (uint32_t)H.nepochs);
+    put32(&b, (uint32_t)H.epoch_base);
+    put64(&b, (uint64_t)H.epoch_k0);
+    put32(&b, (uint32_t)H.nev);
+    put32(&b, (uint32_t)H.nlines);
+    put64(&b, (uint64_t)H.t_start);
+    put64(&b, (uint64_t)H.seen_t);
+    put32(&b, (uint32_t)H.extinctions);
+    put32(&b, (uint32_t)H.lead_col);
+    put32(&b, (uint32_t)H.col_cand);
+    put32(&b, (uint32_t)H.col_hold);
+    for (int c = 0; c < HIST_COLOURS; c++) {
+        put32(&b, (uint32_t)H.col_zero[c]);
+        put32(&b, (uint32_t)H.col_peak[c]);
+        uint8_t f[2] = {H.col_seen[c], H.col_gone[c]};
+        put(&b, f, 2);
+    }
+    put32(&b, H.lead_line);
+    put32(&b, H.line_cand);
+    put32(&b, (uint32_t)H.line_hold);
+    put32(&b, (uint32_t)H.pop_record);
+    put32(&b, (uint32_t)H.rec_children);
+    put32(&b, (uint32_t)H.rec_kills);
+    put32(&b, (uint32_t)H.rec_infected);
+    uint8_t lows[2] = {H.co2_low, H.o2_low};
+    put(&b, lows, 2);
+
+    for (int i = 0; i < H.n; i++) {
+        const HistSample *s = &H.s[i];
+        put64(&b, (uint64_t)s->t);
+        float f[] = {s->pop, s->corpses, s->births, s->deaths, s->infections, s->o2, s->co2,
+#ifdef BIO_COLOUR
+                     s->ch4,
+#endif
+                     s->gen_mean, s->gen_max, s->energy_mean, s->mass_total, s->size_mean,
+                     s->age_mean, s->lines};
+        for (size_t k = 0; k < sizeof f / sizeof f[0]; k++)
+            putf(&b, f[k]);
+        for (int c = 0; c < HIST_COLOURS; c++)
+            putf(&b, s->seg[c]);
+        for (int k = 0; k < HIST_TOP; k++) {
+            put32(&b, s->top_line[k]);
+            putf(&b, s->top_n[k]);
+        }
+    }
+    for (int i = 0; i < H.nepochs; i++) {
+        const Epoch *a = &H.epochs[i];
+        put64(&b, (uint64_t)a->t0);
+        put64(&b, (uint64_t)a->t1);
+        int32_t v[] = {a->samples, a->pop_min, a->pop_max, a->births,
+                       a->deaths,  a->infections, a->extinctions, a->lead_n, a->best_n};
+        for (size_t k = 0; k < sizeof v / sizeof v[0]; k++)
+            put32(&b, (uint32_t)v[k]);
+        putd(&b, a->pop_sum);
+        for (int c = 0; c < HIST_COLOURS; c++)
+            putd(&b, a->seg[c]);
+        put32(&b, a->lead_line);
+        put32(&b, a->best);
+        put64(&b, (uint64_t)a->best_t);
+        for (int k = 0; k < CH_COUNT; k++)
+            put_champion(&b, &codes, &a->ch[k]);
+    }
+    for (int i = 0; i < H.nev; i++) {
+        const Event *e = &H.ev[i];
+        put64(&b, (uint64_t)e->t);
+        put32(&b, (uint32_t)e->kind);
+        put32(&b, (uint32_t)e->colour);
+        put32(&b, e->line);
+        put32(&b, (uint32_t)e->key);
+        put32(&b, (uint32_t)e->count);
+        putd(&b, e->value);
+        putstr(&b, e->text);
+        putstr(&b, e->detail);
+        put32(&b, (uint32_t)code_ref(&codes, e->gc));
+    }
+    for (int i = 0; i < H.nlines; i++) {
+        const Line *l = &H.lines[i];
+        put32(&b, l->id);
+        put32(&b, (uint32_t)l->founder);
+        put64(&b, (uint64_t)l->founded);
+        put64(&b, (uint64_t)l->peak_t);
+        put64(&b, (uint64_t)l->last_seen);
+        put32(&b, (uint32_t)l->peak);
+        put32(&b, (uint32_t)l->alive);
+        uint8_t f[4] = {l->led, l->notable, l->extinct, l->colour};
+        put(&b, f, 4);
+    }
+    free(codes.key);
+    free(codes.val);
+    free(codes.list);
+    *out = b.p;
+    return b.n;
+}
+
+static int get_ref(In *b, int ncodes)
+{
+    uint32_t r = get32(b);
+    if (r > (uint32_t)ncodes)
+        b->bad = true;
+    return b->bad ? 0 : (int)r;
+}
+
+static void get_champion(In *b, int ncodes, Champion *c, int *ref)
+{
+    memset(c, 0, sizeof *c);
+    c->value = getd(b);
+    c->id = (int)get32(b);
+    c->generation = (int)get32(b);
+    c->line = get32(b);
+    c->t = (int64_t)get64(b);
+    const uint8_t *f = get(b, 2);
+    if (f) {
+        c->died = f[0] != 0;
+        c->colour = f[1];
+        if (f[1] >= SYN_NCOL)
+            b->bad = true;
+    }
+    *ref = get_ref(b, ncodes);
+}
+
+/* The parsed codes: given up (0.9: released) */
+static void drop_codes(GeneticCode **codes, int n)
+{
+    for (int i = 0; i < n; i++)
+        keep_code(&codes[i], NULL);
+    free(codes);
+}
+
+bool syn_history_load(World *w, const uint8_t *in, size_t n, const uint8_t *family,
+                      size_t family_n, bool note)
+{
+    In b = {in, n, 0, false};
+    const uint8_t *magic = get(&b, 8);
+    if (!magic || memcmp(magic, HSAVE_MAGIC, 8) != 0 || get32(&b) != HSAVE_FORMAT ||
+        get32(&b) != HSAVE_SIM || get32(&b) != HIST_CAP || get32(&b) != EPOCHS_CAP ||
+        get32(&b) != HIST_COLOURS || get32(&b) != HIST_TOP || get32(&b) != CH_COUNT)
+        return false;
+
+    /* everything into these first; the history and the tree change only
+     * once all of it has read well */
+    uint32_t ncodes = get32(&b);
+    if (b.bad || ncodes > (n - b.at) / 4)
+        return false;
+    GeneticCode **codes = calloc((size_t)ncodes + 1, sizeof *codes);
+    if (!codes)
+        abort();
+    for (uint32_t i = 0; i < ncodes && !b.bad; i++) {
+        uint32_t len = get32(&b);
+        const uint8_t *xml = get(&b, len);
+        char err[256];
+        if (xml)
+            codes[i] = bgg_parse((const char *)xml, len, err, sizeof err);
+        if (!codes[i])
+            b.bad = true;
+    }
+
+    int hn = (int)get32(&b), stride = (int)get32(&b);
+    int64_t commit_t = (int64_t)get64(&b);
+    int64_t totals[6];
+    for (int i = 0; i < 6; i++)
+        totals[i] = (int64_t)get64(&b);
+    int nepochs = (int)get32(&b), epoch_base = (int)get32(&b);
+    int64_t epoch_k0 = (int64_t)get64(&b);
+    int nev = (int)get32(&b), nlines = (int)get32(&b);
+    int64_t t_start = (int64_t)get64(&b), seen_t = (int64_t)get64(&b);
+    int extinctions = (int)get32(&b), lead_col = (int)get32(&b), col_cand = (int)get32(&b);
+    int col_hold = (int)get32(&b);
+    int col_zero[HIST_COLOURS], col_peak[HIST_COLOURS];
+    bool col_seen[HIST_COLOURS], col_gone[HIST_COLOURS];
+    for (int c = 0; c < HIST_COLOURS; c++) {
+        col_zero[c] = (int)get32(&b);
+        col_peak[c] = (int)get32(&b);
+        const uint8_t *f = get(&b, 2);
+        col_seen[c] = f && f[0];
+        col_gone[c] = f && f[1];
+    }
+    uint32_t lead_line = get32(&b), line_cand = get32(&b);
+    int line_hold = (int)get32(&b), pop_record = (int)get32(&b);
+    int rec_children = (int)get32(&b), rec_kills = (int)get32(&b), rec_infected = (int)get32(&b);
+    const uint8_t *lows = get(&b, 2);
+    if (b.bad || hn < 0 || hn > HIST_CAP || stride < 1 || nepochs < 0 || nepochs > EPOCHS_CAP ||
+        epoch_base < 1 || nev < 0 || nlines < 0 || (size_t)nev > n / 32 ||
+        (size_t)nlines > n / 32 || lead_col < -1 || lead_col >= HIST_COLOURS || col_cand < -1 ||
+        col_cand >= HIST_COLOURS) {
+        drop_codes(codes, (int)ncodes);
+        return false;
+    }
+
+    HistSample *s = calloc((size_t)hn + 1, sizeof *s);
+    Epoch *ep = calloc((size_t)nepochs + 1, sizeof *ep);
+    int *ep_ref = calloc((size_t)nepochs * CH_COUNT + 1, sizeof *ep_ref);
+    Event *ev = calloc((size_t)nev + 1, sizeof *ev);
+    int *ev_ref = calloc((size_t)nev + 1, sizeof *ev_ref);
+    Line *ln = calloc((size_t)nlines + 1, sizeof *ln);
+    if (!s || !ep || !ep_ref || !ev || !ev_ref || !ln)
+        abort();
+    for (int i = 0; i < hn && !b.bad; i++) {
+        HistSample *x = &s[i];
+        x->t = (int64_t)get64(&b);
+        float *f[] = {&x->pop, &x->corpses, &x->births, &x->deaths, &x->infections, &x->o2, &x->co2,
+#ifdef BIO_COLOUR
+                      &x->ch4,
+#endif
+                      &x->gen_mean, &x->gen_max, &x->energy_mean, &x->mass_total, &x->size_mean,
+                      &x->age_mean, &x->lines};
+        for (size_t k = 0; k < sizeof f / sizeof f[0]; k++)
+            *f[k] = getf(&b);
+        for (int c = 0; c < HIST_COLOURS; c++)
+            x->seg[c] = getf(&b);
+        for (int k = 0; k < HIST_TOP; k++) {
+            x->top_line[k] = get32(&b);
+            x->top_n[k] = getf(&b);
+        }
+    }
+    for (int i = 0; i < nepochs && !b.bad; i++) {
+        Epoch *a = &ep[i];
+        a->t0 = (int64_t)get64(&b);
+        a->t1 = (int64_t)get64(&b);
+        int *v[] = {&a->samples, &a->pop_min, &a->pop_max, &a->births,
+                    &a->deaths,  &a->infections, &a->extinctions, &a->lead_n, &a->best_n};
+        for (size_t k = 0; k < sizeof v / sizeof v[0]; k++)
+            *v[k] = (int)get32(&b);
+        a->pop_sum = getd(&b);
+        for (int c = 0; c < HIST_COLOURS; c++)
+            a->seg[c] = getd(&b);
+        a->lead_line = get32(&b);
+        a->best = get32(&b);
+        a->best_t = (int64_t)get64(&b);
+        for (int k = 0; k < CH_COUNT; k++)
+            get_champion(&b, (int)ncodes, &a->ch[k], &ep_ref[i * CH_COUNT + k]);
+    }
+    for (int i = 0; i < nev && !b.bad; i++) {
+        Event *e = &ev[i];
+        e->t = (int64_t)get64(&b);
+        uint32_t kind = get32(&b);
+        e->kind = kind < EV_KINDS ? (EventKind)kind : EV_START;
+        e->colour = (int)get32(&b);
+        e->line = get32(&b);
+        e->key = (int)get32(&b);
+        e->count = (int)get32(&b);
+        e->value = getd(&b);
+        getstr(&b, e->text, sizeof e->text);
+        getstr(&b, e->detail, sizeof e->detail);
+        ev_ref[i] = get_ref(&b, (int)ncodes);
+        if (kind >= EV_KINDS || e->colour < -1 || e->colour >= SYN_NCOL)
+            b.bad = true;
+    }
+    for (int i = 0; i < nlines && !b.bad; i++) {
+        Line *l = &ln[i];
+        l->id = get32(&b);
+        l->founder = (int)get32(&b);
+        l->founded = (int64_t)get64(&b);
+        l->peak_t = (int64_t)get64(&b);
+        l->last_seen = (int64_t)get64(&b);
+        l->peak = (int)get32(&b);
+        l->alive = (int)get32(&b);
+        const uint8_t *f = get(&b, 4);
+        if (f) {
+            l->led = f[0] != 0;
+            l->notable = f[1] != 0;
+            l->extinct = f[2] != 0;
+            l->colour = f[3];
+            if (f[3] >= SYN_NCOL)
+                b.bad = true;
+        }
+        if (!l->id)
+            b.bad = true;
+    }
+    /* the line map needs every id once */
+    if (!b.bad && nlines) {
+        int cap = 64;
+        while (cap < 2 * nlines)
+            cap *= 2;
+        uint32_t *seen = calloc((size_t)cap, sizeof *seen);
+        if (!seen)
+            abort();
+        for (int i = 0; i < nlines && !b.bad; i++) {
+            unsigned m = (unsigned)cap - 1, h = map_hash(ln[i].id) & m;
+            while (seen[h] && seen[h] != ln[i].id)
+                h = (h + 1) & m;
+            if (seen[h])
+                b.bad = true;
+            seen[h] = ln[i].id;
+        }
+        free(seen);
+    }
+    if (b.at != n)
+        b.bad = true;
+    /* the tree last: it changes nothing unless all of it reads well */
+    if (b.bad || !syn_family_load(w, family, family_n)) {
+        drop_codes(codes, (int)ncodes);
+        free(s);
+        free(ep);
+        free(ep_ref);
+        free(ev);
+        free(ev_ref);
+        free(ln);
+        return false;
+    }
+
+    /* all of it read: the history it was */
+    release_all();
+    if (!H.s) {
+        H.s = malloc((size_t)HIST_CAP * sizeof *H.s);
+        if (!H.s)
+            abort();
+    }
+    if (!H.epochs) {
+        H.epochs = calloc((size_t)EPOCHS_CAP, sizeof *H.epochs);
+        if (!H.epochs)
+            abort();
+    }
+    memcpy(H.s, s, (size_t)hn * sizeof *s);
+    H.n = hn;
+    H.stride = stride;
+    H.commit_t = commit_t;
+    H.birth0 = totals[0];
+    H.death0 = totals[1];
+    H.inf0 = totals[2];
+    H.ubirth0 = totals[3];
+    H.udeath0 = totals[4];
+    H.uinf0 = totals[5];
+    /* the codes go to their holders (0.9: one reference each) */
+    for (int i = 0; i < nepochs; i++) {
+        H.epochs[i] = ep[i];
+        for (int k = 0; k < CH_COUNT; k++) {
+            H.epochs[i].ch[k].gc = NULL;
+            int r = ep_ref[i * CH_COUNT + k];
+            if (r)
+                keep_code(&H.epochs[i].ch[k].gc, codes[r - 1]);
+        }
+    }
+    H.nepochs = nepochs;
+    H.epoch_base = epoch_base;
+    H.epoch_k0 = epoch_k0;
+    H.ev = grow(H.ev, &H.cap_ev, nev, sizeof *H.ev);
+    for (int i = 0; i < nev; i++) {
+        H.ev[i] = ev[i];
+        H.ev[i].gc = NULL;
+        if (ev_ref[i])
+            keep_code(&H.ev[i].gc, codes[ev_ref[i] - 1]);
+    }
+    H.nev = nev;
+    H.lines = grow(H.lines, &H.cap_lines, nlines, sizeof *H.lines);
+    H.nlines = 0;
+    for (int i = 0; i < nlines; i++) {
+        H.lines[i] = ln[i];
+        H.nlines = i + 1;
+        map_put(ln[i].id, i);
+    }
+    H.t_start = t_start;
+    H.seen_t = seen_t;
+    H.started = true;
+    H.extinctions = extinctions;
+    H.lead_col = lead_col;
+    H.col_cand = col_cand;
+    H.col_hold = col_hold;
+    memcpy(H.col_zero, col_zero, sizeof H.col_zero);
+    memcpy(H.col_peak, col_peak, sizeof H.col_peak);
+    memcpy(H.col_seen, col_seen, sizeof H.col_seen);
+    memcpy(H.col_gone, col_gone, sizeof H.col_gone);
+    H.lead_line = lead_line;
+    H.line_cand = line_cand;
+    H.line_hold = line_hold;
+    H.pop_record = pop_record;
+    H.rec_children = rec_children;
+    H.rec_kills = rec_kills;
+    H.rec_infected = rec_infected;
+    H.co2_low = lows[0] != 0;
+    H.o2_low = lows[1] != 0;
+    drop_codes(codes, (int)ncodes);
+    free(s);
+    free(ep);
+    free(ep_ref);
+    free(ev);
+    free(ev_ref);
+    free(ln);
+
+    if (note) {
+        char text[96], tt[32];
+        num(tt, sizeof tt, (double)w->stats.time);
+        snprintf(text, sizeof text, "World opened at t %s", tt);
+        Event *e = add_event(w->stats.time, EV_START, 0, text);
+        snprintf(e->detail, sizeof e->detail, "its history, saved beside it, goes on from here");
+    }
+    return true;
 }

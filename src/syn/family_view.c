@@ -132,6 +132,28 @@ static const Species *species(const Node *nd)
     return syn_family_get(nd->id);
 }
 
+/* A named family begins with it, away from a root. */
+static bool new_family(const Species *s)
+{
+    return s->family == s->id && s->parent && s->name_no > 0;
+}
+
+/* "family VELORAX, from OMICRON", "began family ZEPHYRA, from VELORAX" */
+static void family_line(const Species *s, char *out, size_t n)
+{
+    const Species *head = syn_family_head(s), *from = syn_family_parent_head(s);
+    char fam[40] = "", pf[40] = "";
+    if (head)
+        syn_family_title(head->name_no, fam, sizeof fam);
+    if (from)
+        syn_family_title(from->name_no, pf, sizeof pf);
+    bool began = head == s;
+    if (!fam[0])
+        snprintf(out, n, "%s a family not yet named", began ? "began" : "of");
+    else
+        snprintf(out, n, "%sfamily %s%s%s", began ? "began " : "", fam, pf[0] ? ", from " : "", pf);
+}
+
 /* A code's body in r, on black, as the laboratory draws it. */
 static void body(UIRect r, const GeneticCode *gc, Uint8 alpha)
 {
@@ -420,10 +442,25 @@ static bool body_png(const GeneticCode *gc, const char *path)
     return ok;
 }
 
+/* "VELORAX-3", "OMICRON-II-14"; one not numbered by its founder's number
+ * (Color Mod's two steps in one birth share one) */
+static void file_stem(const Species *s, char *out, size_t n)
+{
+    syn_family_name(s, out, n);
+    if (!s->number) {
+        snprintf(out, n, "species-%d-%u", s->founder, s->id);
+        return;
+    }
+    for (char *p = out; *p; p++)
+        if (*p == ' ')
+            *p = '-';
+}
+
 static void file_name(const Species *s, const char *what, char *out, size_t n)
 {
-    /* the founder's number; Color Mod's two steps in one birth share one */
-    snprintf(out, n, "species-%d-%u.%s", s->founder, s->id, what);
+    char stem[64];
+    file_stem(s, stem, sizeof stem);
+    snprintf(out, n, "%s.%s", stem, what);
 }
 
 static void export_tree(App *a, const History *hi)
@@ -509,7 +546,13 @@ static void export_tree(App *a, const History *hi)
             fprintf(f, "<TR><TD FIXEDSIZE=\"TRUE\" WIDTH=\"112\" HEIGHT=\"112\"><IMG SRC=\"%s\"/></TD></TR>", fn);
         char ep[32];
         epochs_text(nd, ep, sizeof ep);
-        fprintf(f, "<TR><TD><B>#%d</B>%s%s</TD></TR>", s->founder, ep[0] ? "  " : "", ep);
+        char nm[64];
+        syn_family_label(s, nm, sizeof nm);
+        fputs("<TR><TD><B>", f);
+        html(f, nm);
+        fprintf(f, "</B>%s%s%s</TD></TR>", new_family(s) ? "  new family" : "", ep[0] ? "  " : "", ep);
+        if (s->number)
+            fprintf(f, "<TR><TD><FONT POINT-SIZE=\"9\">#%d</FONT></TD></TR>", s->founder);
         char plan[160];
         syn_family_plan(s->gc, plan, sizeof plan);
         fputs("<TR><TD><FONT POINT-SIZE=\"9\">", f);
@@ -553,8 +596,7 @@ static void export_tree(App *a, const History *hi)
     if (f) {
         int span = V.epoch_span;
         fprintf(f, "The best of each epoch of %s: the species with the most living at once.\n", name);
-        fprintf(f, "Epochs of %d time units, to t %s. Each one's code is in epoch-NN-species-FOUNDER.bgg.\n\n",
-                span, tn);
+        fprintf(f, "Epochs of %d time units, to t %s. Each one's code is in epoch-NN-NAME.bgg.\n\n", span, tn);
         int64_t k0 = span > 0 ? hi->t_start / span : 0, k1 = span > 0 ? hi->t_now / span : -1;
         for (int64_t kk = k0; kk <= k1; kk++) {
             Epoch ep;
@@ -564,8 +606,10 @@ static void export_tree(App *a, const History *hi)
             if (!s || !s->gc)
                 continue;
             int num = (int)(kk - k0 + 1);
-            char fn[128], plan[160], t0[32], t1[32], bt[32], bn[32];
-            snprintf(fn, sizeof fn, "epoch-%02d-species-%d.bgg", num, s->founder);
+            char fn[128], plan[160], t0[32], t1[32], bt[32], bn[32], stem[64], nm[64];
+            file_stem(s, stem, sizeof stem);
+            syn_family_label(s, nm, sizeof nm);
+            snprintf(fn, sizeof fn, "epoch-%02d-%s.bgg", num, stem);
             snprintf(path, sizeof path, "%s/%s", dir, fn);
             bgg_write(path, s->gc);
             syn_family_plan(s->gc, plan, sizeof plan);
@@ -573,8 +617,8 @@ static void export_tree(App *a, const History *hi)
             fmt_num(t1, sizeof t1, (double)ep.t1);
             fmt_num(bt, sizeof bt, (double)ep.best_t);
             fmt_num(bn, sizeof bn, ep.best_n);
-            fprintf(f, "epoch %2d  t %s to %s\n  #%d: %s living at once (t %s); %s\n  %s\n\n", num, t0, t1,
-                    s->founder, bn, bt, plan, fn);
+            fprintf(f, "epoch %2d  t %s to %s\n  %s (#%d): %s living at once (t %s); %s\n  %s\n\n", num, t0,
+                    t1, nm, s->founder, bn, bt, plan, fn);
             bests++;
         }
         fclose(f);
@@ -626,8 +670,9 @@ float syn_family_controls(App *a, float x, float y, float h, char *info, size_t 
         ui_tooltip("Save the tree as shown for Graphviz, with every species' picture and code, and the best of "
                    "each epoch compiled, in a folder beside the world");
     x += re.w + 8;
-    int kept = syn_family_count();
-    snprintf(info, n, "%d of %d species shown; drag to move, wheel to zoom, click one to follow it", V.n, kept);
+    int kept = syn_family_count(), fams = syn_family_named();
+    snprintf(info, n, "%d of %d species, %d famil%s; drag to move, wheel to zoom, click one to follow it", V.n, kept,
+             fams, fams == 1 ? "y" : "ies");
     return x;
 }
 
@@ -768,6 +813,15 @@ static void card(App *a, UIRect r, const History *hi)
             "plan founds a new species. Each edge",
             "says what changed.",
             "",
+            "Species are grouped in families,",
+            "each named (VELORAX, OMICRON ...)",
+            "when one of them first has 5 living",
+            "at once; a species is numbered when",
+            "it does (VELORAX-3). One far enough",
+            "from its family's first plan begins",
+            "a new family. VELORAX sp.: one not",
+            "numbered yet.",
+            "",
             "Click a species to follow it here;",
             "double-click opens it in the",
             "laboratory, a right click copies it.",
@@ -780,8 +834,11 @@ static void card(App *a, UIRect r, const History *hi)
         }
         return;
     }
-    snprintf(buf, sizeof buf, "SPECIES #%d", s->founder);
-    float hw = skin_text(fo->heading, buf, x, y, TONE_TEXT, ALIGN_LEFT);
+    syn_family_label(s, buf, sizeof buf);
+    if (buf[0] == '#')
+        snprintf(buf, sizeof buf, "SPECIES #%d", s->founder);
+    float hw = skin_text(fo->heading, skin_fit(fo->heading, buf, w - 70, fit_, sizeof fit_), x, y, TONE_TEXT,
+                         ALIGN_LEFT);
     skin_text(fo->small_bold, s->alive > 0 ? "LIVING" : "GONE", x + hw + 10, y + 5,
               s->alive > 0 ? TONE_GOOD : TONE_MUTED, ALIGN_LEFT);
     y += skin_text_height(fo->heading) + 6;
@@ -841,11 +898,16 @@ static void card(App *a, UIRect r, const History *hi)
     y += skin_text_height(fo->small) + 1;
     tnum(v1, sizeof v1, s->born);
     const Species *root = syn_family_get(s->root);
+    char rn[64];
+    syn_family_label(root, rn, sizeof rn);
     if (s->parent)
-        snprintf(buf, sizeof buf, "first seen %s; %d step%s from #%d", v1, s->depth, s->depth > 1 ? "s" : "",
-                 root ? root->founder : 0);
+        snprintf(buf, sizeof buf, "first seen %s, in #%d; %d step%s from %s", v1, s->founder, s->depth,
+                 s->depth > 1 ? "s" : "", rn);
     else
-        snprintf(buf, sizeof buf, "first seen %s; a root of the tree", v1);
+        snprintf(buf, sizeof buf, "first seen %s, in #%d; a root of the tree", v1, s->founder);
+    skin_text(fo->small, skin_fit(fo->small, buf, w, fit_, sizeof fit_), x, y, TONE_TEXT, ALIGN_LEFT);
+    y += skin_text_height(fo->small) + 1;
+    family_line(s, buf, sizeof buf);
     skin_text(fo->small, skin_fit(fo->small, buf, w, fit_, sizeof fit_), x, y, TONE_TEXT, ALIGN_LEFT);
     y += skin_text_height(fo->small) + 1;
     int k = node_index(s->id);
@@ -883,10 +945,14 @@ static void card(App *a, UIRect r, const History *hi)
     if (nc > room && room > 1) {
         /* the root, then as many of the latest steps as fit */
         const Species *p = syn_family_get(chain[nc - 1]);
-        snprintf(buf, sizeof buf, "#%d  the root", p ? p->founder : 0);
+        char pn[64];
+        syn_family_label(p, pn, sizeof pn);
+        snprintf(buf, sizeof buf, "%s  the root", pn);
         skin_text(fo->small, buf, x, y, TONE_TEXT, ALIGN_LEFT);
         y += row;
-        snprintf(buf, sizeof buf, "... %d steps ...", nc - room);
+        /* the root, this line and room - 2 steps shown */
+        int skipped = nc - room + 1;
+        snprintf(buf, sizeof buf, "... %d step%s ...", skipped, skipped > 1 ? "s" : "");
         skin_text(fo->small, buf, x, y, TONE_MUTED, ALIGN_LEFT);
         y += row;
         first = room - 3;
@@ -895,9 +961,10 @@ static void card(App *a, UIRect r, const History *hi)
         const Species *p = syn_family_get(chain[i]);
         if (!p)
             continue;
-        char ch[200];
+        char ch[180], pn[64];
         syn_family_change(p, ch, sizeof ch);
-        snprintf(buf, sizeof buf, "#%d  %s", p->founder, p->parent ? ch : "the root");
+        syn_family_label(p, pn, sizeof pn);
+        snprintf(buf, sizeof buf, "%s  %s", pn, p->parent ? ch : "the root");
         UIRect rr = {x - 4, y - 1, w + 8, row};
         bool h = over(rr);
         if (h)
@@ -1038,10 +1105,11 @@ void syn_family_view(App *a, UIRect area, bool keys)
             skin_text(fo->small_bold, ep, r.x + 8, r.y + 3, TONE_ON_ACCENT, ALIGN_LEFT);
         }
         if (words) {
-            char buf[96], v[32];
+            char buf[96], v[32], fit_[96];
             float ty = b.y + b.h + 3;
-            snprintf(buf, sizeof buf, "#%d", s->founder);
-            skin_text(fo->bold, buf, r.x + r.w / 2, ty, focus ? TONE_ACCENT : TONE_TEXT, ALIGN_CENTER);
+            syn_family_label(s, buf, sizeof buf);
+            skin_text(fo->bold, skin_fit(fo->bold, buf, r.w - 8, fit_, sizeof fit_), r.x + r.w / 2, ty,
+                      focus ? TONE_ACCENT : TONE_TEXT, ALIGN_CENTER);
             ty += skin_text_height(fo->bold) - 2;
             if (s->alive > 0) {
                 fmt_num(v, sizeof v, s->alive);
@@ -1057,10 +1125,20 @@ void syn_family_view(App *a, UIRect area, bool keys)
             snprintf(buf, sizeof buf, "peak %s", v);
             skin_text(fo->small, buf, r.x + r.w / 2, ty, TONE_MUTED, ALIGN_CENTER);
         } else if (z >= 0.3f) {
-            char buf[24];
-            snprintf(buf, sizeof buf, "#%d", s->founder);
-            skin_text(fo->small, buf, r.x + r.w / 2, r.y + r.h - skin_text_height(fo->small) - 2,
-                      focus ? TONE_ACCENT : TONE_TEXT, ALIGN_CENTER);
+            char buf[64], fit_[64];
+            syn_family_label(s, buf, sizeof buf);
+            skin_text(fo->small, skin_fit(fo->small, buf, r.w - 4, fit_, sizeof fit_), r.x + r.w / 2,
+                      r.y + r.h - skin_text_height(fo->small) - 2, focus ? TONE_ACCENT : TONE_TEXT, ALIGN_CENTER);
+        }
+        if (new_family(s) && z >= 0.3f) {
+            /* where a family begins, at the box's other corner */
+            const char *nf = "NEW FAMILY";
+            float nw = skin_text_width(fo->small_bold, nf) + 10, nh = skin_text_height(fo->small_bold);
+            /* under the epochs' mark if it has one */
+            UIRect nb = {r.x + r.w - 3 - nw, r.y + 3 + (nd->ep0 ? nh + 2 : 0), nw, nh};
+            skin_fill(nb, th->panel, 1);
+            outline(nb, 1, th->accent, 1);
+            skin_text(fo->small_bold, nf, nb.x + 5, nb.y, TONE_ACCENT, ALIGN_LEFT);
         }
         Rgb fc = focus || nd->ep0 ? th->accent : V.path[k] ? th->accent : th->border;
         outline(r, focus ? 3 : nd->ep0 || V.path[k] ? 2 : 1, fc, focus || nd->ep0 ? 1 : V.path[k] ? 0.6f : 0.8f);
@@ -1079,10 +1157,16 @@ void syn_family_view(App *a, UIRect area, bool keys)
     uint32_t pop = ui_id("famnode", 0);
     if (hover >= 0) {
         const Species *s = species(&V.nodes[hover]);
-        char tip[300], plan[160];
+        char tip[400], plan[160], nm[64], fl[96];
         syn_family_plan(s->gc, plan, sizeof plan);
-        snprintf(tip, sizeof tip, "Species #%d: %s. Click to follow it; double-click for its genes.", s->founder,
-                 plan);
+        syn_family_label(s, nm, sizeof nm);
+        family_line(s, fl, sizeof fl);
+        if (nm[0] == '#')
+            snprintf(tip, sizeof tip, "Species %s, %s: %s. Click to follow it; double-click for its genes.", nm, fl,
+                     plan);
+        else
+            snprintf(tip, sizeof tip, "%s (#%d), %s: %s. Click to follow it; double-click for its genes.", nm,
+                     s->founder, fl, plan);
         ui_tooltip(tip);
         if (ui_pressed(sdl(c), 1)) {
             if (ui_double_clicked() && s->gc)

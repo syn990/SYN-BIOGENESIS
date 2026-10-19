@@ -18,11 +18,12 @@ tests/sim_check "$tmp" || status=1
 	--save "$tmp/fuzz.bgw" && tests/bgw_fuzz "$tmp/fuzz.bgw" 800 || status=1
 
 # the SYN edition's history only reads the world: the same run with and
-# without it hashes and saves the same, and its books add up
+# without it hashes and saves the same, and its books add up. The recorded
+# run's world is made an organism at a time, as the window makes it.
 if tests/history_check 40000 42 plain "$tmp/hist_plain.bgw" >"$tmp/hist_plain.txt" &&
 	tests/history_check_small 40000 42 history "$tmp/hist_rec.bgw" >"$tmp/hist_rec.txt" 2>"$tmp/hist.log" &&
 	cmp -s "$tmp/hist_plain.txt" "$tmp/hist_rec.txt" && cmp -s "$tmp/hist_plain.bgw" "$tmp/hist_rec.bgw"; then
-	echo "SYN history: 40000 frames recorded, world and save unchanged; $(cat "$tmp/hist.log")"
+	echo "SYN history: 40000 frames recorded in a world made step by step, world and save unchanged; $(cat "$tmp/hist.log")"
 else
 	echo "FAIL SYN history: the recorded run differs, or its books don't add up"
 	cat "$tmp/hist.log"
@@ -33,7 +34,7 @@ fi
 if tests/history_check_colour 1024 42 plain "$tmp/histc_plain.bgw" >"$tmp/histc_plain.txt" &&
 	tests/history_check_colour 1024 42 history "$tmp/histc_rec.bgw" >"$tmp/histc_rec.txt" 2>"$tmp/histc.log" &&
 	cmp -s "$tmp/histc_plain.txt" "$tmp/histc_rec.txt" && cmp -s "$tmp/histc_plain.bgw" "$tmp/histc_rec.bgw"; then
-	echo "SYN history, Color Mod: 1024 frames recorded, world and save unchanged; $(cat "$tmp/histc.log")"
+	echo "SYN history, Color Mod: 1024 frames recorded in a world made step by step, world and save unchanged; $(cat "$tmp/histc.log")"
 else
 	echo "FAIL SYN history, Color Mod: the recorded run differs, or its books don't add up"
 	cat "$tmp/histc.log"

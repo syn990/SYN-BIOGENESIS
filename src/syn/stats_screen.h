@@ -30,12 +30,16 @@
 #ifndef SYN_STATS_SCREEN_H
 #define SYN_STATS_SCREEN_H
 
+#include <stddef.h>
+
 struct App;
 struct Organism;
 
 void syn_stats_frame(struct App *a, int w, int h);
 /* The FAMILY tab, focused on this organism's species. */
 void syn_stats_family(const struct Organism *o);
+/* Its species' name in the family tree ("VELORAX-3", "#123"); "" if none. */
+void syn_stats_species(const struct Organism *o, char *out, size_t n);
 /* The length of the EPOCHS tab's epochs, in time units (its numbering is
  * the FAMILY tab's too). */
 struct History;

@@ -69,11 +69,8 @@ static const char k_doctype[] =
     "<!ATTLIST gene color (red|green|blue|cyan|yellow|gray|white) #REQUIRED>\n"
     "]>\n";
 
-bool bgg_write(const char *path, const GeneticCode *gc)
+void bgg_write_file(FILE *f, const GeneticCode *gc)
 {
-    FILE *f = fopen(path, "w");
-    if (!f)
-        return false;
     fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", f);
     fputs(k_doctype, f);
     fprintf(f, "<genetic_code symmetry=\"%d\" mirror=\"%s\" disperse=\"%s\">\n", gc->symmetry,
@@ -86,6 +83,14 @@ bool bgg_write(const char *path, const GeneticCode *gc)
                 bgg_color_name(gc->genes[i].color));
     }
     fputs("</genetic_code>\n", f);
+}
+
+bool bgg_write(const char *path, const GeneticCode *gc)
+{
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return false;
+    bgg_write_file(f, gc);
     return fclose(f) == 0;
 }
 
