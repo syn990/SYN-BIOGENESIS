@@ -1149,6 +1149,9 @@ size_t syn_history_save(uint8_t **out)
     *out = NULL;
     if (!H.started)
         return 0;
+    FILE *tmp = tmpfile();
+    if (!tmp)
+        return 0;
     int holders = H.nepochs * CH_COUNT + H.nev;
     CodeSet codes = {0};
     codes.cap = 64;
@@ -1175,18 +1178,30 @@ size_t syn_history_save(uint8_t **out)
     put32(&b, HIST_TOP);
     put32(&b, CH_COUNT);
 
+    /* each code as its .bgg */
     put32(&b, (uint32_t)codes.n);
-    for (int i = 0; i < codes.n; i++) {
-        char *xml = NULL;
-        size_t len = 0;
-        FILE *m = open_memstream(&xml, &len);
-        if (!m)
+    bool copied = true;
+    for (int i = 0; i < codes.n && copied; i++) {
+        rewind(tmp);
+        bgg_write_file(tmp, codes.list[i]);
+        long end = ftell(tmp);
+        size_t len = end > 0 ? (size_t)end : 0;
+        char *xml = malloc(len ? len : 1);
+        if (!xml)
             abort();
-        bgg_write_file(m, codes.list[i]);
-        fclose(m);
+        rewind(tmp);
+        copied = fread(xml, 1, len, tmp) == len;
         put32(&b, (uint32_t)len);
         put(&b, xml, len);
         free(xml);
+    }
+    fclose(tmp);
+    if (!copied) {
+        free(b.p);
+        free(codes.key);
+        free(codes.val);
+        free(codes.list);
+        return 0;
     }
 
     put32(&b, (uint32_t)H.n);

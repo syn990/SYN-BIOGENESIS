@@ -30,7 +30,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
+#include "compat.h"
 #include "host.h"
 #include "sim/params.h"
 
@@ -88,9 +92,29 @@ static void variant_save(Variant v)
     fclose(f);
 }
 
+#ifdef _WIN32
+/* On Windows this is a window program, which starts without a console: run
+ * from one (--help, --headless) with its output not redirected, it writes
+ * to that console. */
+static void attach_console(void)
+{
+    bool out = GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_UNKNOWN;
+    bool err = GetFileType(GetStdHandle(STD_ERROR_HANDLE)) == FILE_TYPE_UNKNOWN;
+    if ((out || err) && AttachConsole(ATTACH_PARENT_PROCESS)) {
+        if (out)
+            freopen("CONOUT$", "w", stdout);
+        if (err)
+            freopen("CONOUT$", "w", stderr);
+    }
+}
+#endif
+
 int main(int argc, char **argv)
 {
     Variant v;
+#ifdef _WIN32
+    attach_console();
+#endif
     if (argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) {
         printf("usage: syn-biogenesis                    the simulation used last (Biogenesis 0.9 at first)\n"
                "       syn-biogenesis [seed]             Biogenesis 0.9\n"
@@ -102,7 +126,11 @@ int main(int argc, char **argv)
     }
     if (argc > 1 && !strcmp(argv[1], "--colour")) {
         v = V_COLOUR;
+        /* swapped, not overwritten: on Windows SDL's main frees each of
+         * the strings it passed when this returns */
+        char *colour = argv[1];
         argv[1] = argv[0];
+        argv[0] = colour;
         argc--;
         argv++;
     } else if (argc > 1) {

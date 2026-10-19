@@ -127,7 +127,7 @@ int headless_run(const HeadlessOptions *opt)
     }
     FILE *dump = NULL;
     if (opt->dump_path) {
-        dump = fopen(opt->dump_path, "w");
+        dump = fopen(opt->dump_path, "wb");
         if (!dump) {
             perror(opt->dump_path);
             return 1;
@@ -136,7 +136,7 @@ int headless_run(const HeadlessOptions *opt)
     }
     FILE *hash = NULL;
     if (opt->hash_path) {
-        hash = fopen(opt->hash_path, "w");
+        hash = fopen(opt->hash_path, "wb");
         if (!hash) {
             perror(opt->hash_path);
             if (dump)

@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "compat.h"
 #include "io/bgg.h"
 #include "io/bgw.h"
 #include "io/worldfile.h"
@@ -1888,9 +1889,9 @@ int app_run(void)
     set_icon(a->window);
     SDL_StopTextInput(); /* on only while a text field has focus */
 
-    const char *home = getenv("HOME");
+    const char *home = home_dir();
     char cwd[1024];
-    const char *start = getcwd(cwd, sizeof cwd) ? cwd : (home ? home : "/");
+    const char *start = getcwd(cwd, sizeof cwd) ? path_slashes(cwd) : (home ? home : "/");
     snprintf(a->last_dir_world, sizeof a->last_dir_world, "%s", start);
     snprintf(a->last_dir_genes, sizeof a->last_dir_genes, "%s", start);
     snprintf(a->last_dir_image, sizeof a->last_dir_image, "%s", start);

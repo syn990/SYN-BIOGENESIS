@@ -17,7 +17,9 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 status=0
 b=tools/javaref/colour/build
-cp="$b/classes:$b/biogenesis.jar:$b/jts.jar"
+# a Windows JVM separates class path entries with ';'
+case $(uname -s) in *_NT-*) sep=';' ;; *) sep=: ;; esac
+cp="$b/classes$sep$b/biogenesis.jar$sep$b/jts.jar"
 bgg() { java -cp "$cp" biogenesis.ColourBggInterop "$@"; }
 headless="./syn-biogenesis --colour --headless --defaults --quiet"
 
@@ -52,8 +54,10 @@ for s in 's/mutationrate="[0-9]*"/mutationrate="10001"/' 's/activity="[0-9]"/act
 	sed "$s" "$f" >"$tmp/bad/bad_$i.bgg"
 	i=$((i + 1))
 done
-bgg read "$tmp"/corpus/*.bgg "$tmp"/bad/*.bgg >"$tmp/kj.txt"
-tests/colour_bgg_tool read "$tmp"/corpus/*.bgg "$tmp"/bad/*.bgg >"$tmp/kc.txt"
+# 200 at a time: a command line on Windows holds 32,767 characters
+printf '%s\n' "$tmp"/corpus/*.bgg "$tmp"/bad/*.bgg >"$tmp/list"
+xargs -n 200 java -cp "$cp" biogenesis.ColourBggInterop read <"$tmp/list" >"$tmp/kj.txt"
+xargs -n 200 tests/colour_bgg_tool read <"$tmp/list" >"$tmp/kc.txt"
 if cmp -s "$tmp/kj.txt" "$tmp/kc.txt"; then
 	echo "colour .bgg corpus: $(wc -l <"$tmp/kj.txt") codes (mutated, evolved, extreme, damaged) read as Color Mod reads them"
 else

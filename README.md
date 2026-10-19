@@ -407,6 +407,40 @@ point (see the Makefile and `src/launcher.c`). Biogenesis 0.9's
 simulation is the translation compiled with nothing else. Through this
 program it matches the jar frame by frame (`make test`).
 
+### Windows
+
+The same program builds on Windows 10 and 11 with
+[MSYS2](https://www.msys2.org). In its UCRT64 shell:
+
+```sh
+pacman -S --needed make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf \
+    mingw-w64-ucrt-x86_64-SDL2 mingw-w64-ucrt-x86_64-SDL2_ttf mingw-w64-ucrt-x86_64-SDL2_image
+make
+make dist
+```
+
+`make` builds `syn-biogenesis.exe`, linked statically: SDL and the
+libraries it uses are inside it, so it needs no DLL but Windows's own and
+runs from Explorer or any shell, with the `assets` folder beside it.
+`make dist` puts it, without its debugging information, in
+`dist/syn-biogenesis/` with the assets; that folder runs on any 64-bit
+Windows 10 or 11 without MSYS2. Every push builds and
+checks it on GitHub Actions (`.github/workflows/build.yml`, beside the
+Linux build), and each run keeps the folder as a download,
+`syn-biogenesis-windows-x86_64`.
+
+It is a window program. Run from Command Prompt or PowerShell, `--help`
+and `--headless` write to that console, which does not wait for it; piped
+(`| Out-Host`, `| more`), it waits. Settings are kept in
+`%APPDATA%\syn-biogenesis`.
+
+It runs the JVM's `sin`, `cos` and `pow` there too, the same routines
+entered through a frame for Windows's calling convention
+(`tools/jvmlibm/`), so it matches the jar frame by frame on Windows as
+well. `make test` runs in the UCRT64 shell, with a JDK on the `PATH` for
+the JVM checks and `tools/javaref/fetch.sh` run for the comparisons with
+the jars.
+
 ## Using it
 
 Everything from the original is in the same place: **Game** (new, pause,
@@ -799,12 +833,14 @@ src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
                 (SYN-DEBT's, drawn with SDL_Renderer), the main menu and options
 src/headless.c, src/main.c   Biogenesis 0.9 without a window, its arguments
 src/launcher.c, src/host.h   the program: runs Biogenesis 0.9 or Color Mod, switches
+src/compat.h, src/win/       Windows: the POSIX calls it lacks, the icon and manifest
 tests/          make test
 tools/javaref/  the Java reference: runs the shipped jar headless (colour/: Color Mod's)
 tools/colour/   the Java-to-C translator for Color Mod (translate.py)
 tools/jvmlibm/  translates HotSpot's sin/cos/pow into jvm_libm_x86_64.S
 tools/drift/    the drift study and its charts (docs/drift/)
 tools/being/    the being search, the battles and their charts (docs/being/)
+tools/win/      makes the Windows icon from the original's
 ```
 
 ```sh

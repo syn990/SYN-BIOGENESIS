@@ -1,0 +1,9 @@
+/* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
+ * Copyright (C) 2026 syn990
+ * SPDX-License-Identifier: GPL-2.0-or-later (see LICENSE)
+ *
+ * The Windows program's resources: its icon (the original's, made by
+ * tools/win/icon.py) and its manifest. */
+
+1 ICON "syn-biogenesis.ico"
+1 24 "syn-biogenesis.manifest"

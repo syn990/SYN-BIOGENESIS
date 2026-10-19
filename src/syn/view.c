@@ -23,6 +23,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "compat.h"
 #include "sim/params.h"
 #include "syn/batch.h"
 #include "syn/looks.h"

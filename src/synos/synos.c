@@ -24,6 +24,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "compat.h"
 #include "sim/params.h"
 #include "syn/syn.h"
 #include "ui/gfx.h"

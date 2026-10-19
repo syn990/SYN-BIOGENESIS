@@ -77,7 +77,7 @@ int headless_run(const HeadlessOptions *opt)
     }
     FILE *dump = NULL;
     if (opt->dump_path) {
-        dump = fopen(opt->dump_path, "w");
+        dump = fopen(opt->dump_path, "wb");
         if (!dump) {
             perror(opt->dump_path);
             world_free(&w);

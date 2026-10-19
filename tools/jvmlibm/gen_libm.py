@@ -262,7 +262,12 @@ def main():
         print(" *")
     print(" */")
     print()
-    print("#if defined(__x86_64__) && defined(__ELF__)")
+    print("/* On Windows (the Microsoft x64 convention) each routine is entered")
+    print(" * through a frame that keeps what that convention has the called")
+    print(" * function keep and System V does not: rsi and rdi (HotSpot's own")
+    print(" * Windows build pushes them, in the _WIN64 lines left out here) and")
+    print(" * xmm6 and xmm7, which the routines use. The routines are unchanged. */")
+    print("#if defined(__x86_64__) && (defined(__ELF__) || defined(_WIN32))")
     print("\t.intel_syntax noprefix")
     print()
     used = set()
@@ -273,7 +278,11 @@ def main():
         stubs.append(st)
         for l in st.lines:
             used.update(re.findall(r"\b(_\w+)\b", l))
+    print("#ifdef _WIN32")
+    print("\t.section .rdata,\"dr\"")
+    print("#else")
     print("\t.section .rodata")
+    print("#endif")
     for name in sorted(n for n in tables if n in used):
         align, words = tables[name]
         print(f"\t.balign {align}")
@@ -285,14 +294,32 @@ def main():
     for st in stubs:
         print()
         print(f"\t.globl {st.symbol}")
+        print("#ifdef _WIN32")
+        print(f"\t.def {st.symbol}; .scl 2; .type 32; .endef")
+        print("\t.balign 16")
+        print(f"{st.symbol}:")
+        for l in ["push rsi", "push rdi", "sub rsp, 40",
+                  "movdqu xmmword ptr [rsp], xmm6", "movdqu xmmword ptr [rsp + 16], xmm7",
+                  f"call {st.label('win64')}",
+                  "movdqu xmm6, xmmword ptr [rsp]", "movdqu xmm7, xmmword ptr [rsp + 16]",
+                  "add rsp, 40", "pop rdi", "pop rsi", "ret"]:
+            print("\t" + l)
+        print("\t.balign 32")
+        print(f"{st.label('win64')}:")
+        print("#else")
         print(f"\t.type {st.symbol}, @function")
         print("\t.balign 32")
         print(f"{st.symbol}:")
+        print("#endif")
         for l in st.lines:
             print(l)
+        print("#ifndef _WIN32")
         print(f"\t.size {st.symbol}, . - {st.symbol}")
+        print("#endif")
     print()
+    print("#ifndef _WIN32")
     print("\t.section .note.GNU-stack,\"\",@progbits")
+    print("#endif")
     print("#endif")
 
 
