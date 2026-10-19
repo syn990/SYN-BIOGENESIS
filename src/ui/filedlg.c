@@ -22,6 +22,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 
+#include "compat.h"
 #include "ui/app.h"
 #ifdef BIO_SYNOS
 #include "synos/synos.h"
@@ -125,7 +126,7 @@ void filedlg_open(App *a, FilePurpose purpose, bool save, const char *ext, const
     d->name[0] = '\0';
     struct stat st;
     if (!dir || !*dir || stat(dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
-        const char *home = getenv("HOME");
+        const char *home = home_dir();
         dir = home ? home : "/";
     }
     set_dir(d, dir);
@@ -143,6 +144,10 @@ static void up_dir(FileDialog *d)
         return;
     if (slash == p)
         p[1] = '\0';
+#ifdef _WIN32
+    else if (slash == p + 2 && p[1] == ':')
+        p[3] = '\0'; /* a drive's root, C:/ */
+#endif
     else
         *slash = '\0';
     set_dir(d, p);
@@ -154,11 +159,12 @@ static void accept(App *a)
     if (!d->name[0])
         return;
     char path[4400];
-    if (d->name[0] == '/')
+    if (path_absolute(d->name))
         snprintf(path, sizeof path, "%s", d->name);
     else
         snprintf(path, sizeof path, "%s%s%s", d->dir,
                  d->dir[strlen(d->dir) - 1] == '/' ? "" : "/", d->name);
+    path_slashes(path);
     struct stat st;
     if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
         set_dir(d, path);
@@ -201,7 +207,7 @@ void filedlg_draw(App *a)
     if (ui_button(ui_id("fd_up", 0), (SDL_Rect){c.x + c.w - 2 * 74 + 4, y, 70, rh}, "Up", true))
         up_dir(d);
     if (ui_button(ui_id("fd_home", 0), (SDL_Rect){c.x + c.w - 70, y, 70, rh}, "Home", true)) {
-        const char *home = getenv("HOME");
+        const char *home = home_dir();
         if (home)
             set_dir(d, home);
     }

@@ -36,13 +36,13 @@ int main(int argc, char **argv)
     char path[1100];
     snprintf(path, sizeof path, "%s.damaged", argv[1]);
     int iters = atoi(argv[2]), loaded = 0;
-    unsigned long r = 12345;
+    uint64_t r = 12345;
     for (int it = 0; it < iters; it++) {
         long len = n;
         memcpy(buf, src, (size_t)n);
         for (int k = 0; k < 1 + it % 6; k++) {
-            r = r * 6364136223846793005UL + 1442695040888963407UL;
-            long at = (long)((r >> 33) % (unsigned long)n);
+            r = r * 6364136223846793005ULL + 1442695040888963407ULL;
+            long at = (long)((r >> 33) % (uint64_t)n);
             switch (it % 4) {
             case 0: buf[at] ^= (unsigned char)(1u << (r % 8)); break;
             case 1: buf[at] = (unsigned char)(r >> 24); break;

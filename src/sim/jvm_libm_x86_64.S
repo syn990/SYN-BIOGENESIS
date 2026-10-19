@@ -102,10 +102,19 @@
  *
  */
 
-#if defined(__x86_64__) && defined(__ELF__)
+/* On Windows (the Microsoft x64 convention) each routine is entered
+ * through a frame that keeps what that convention has the called
+ * function keep and System V does not: rsi and rdi (HotSpot's own
+ * Windows build pushes them, in the _WIN64 lines left out here) and
+ * xmm6 and xmm7, which the routines use. The routines are unchanged. */
+#if defined(__x86_64__) && (defined(__ELF__) || defined(_WIN32))
 	.intel_syntax noprefix
 
+#ifdef _WIN32
+	.section .rdata,"dr"
+#else
 	.section .rodata
+#endif
 	.balign 8
 _ALL_ONES:
 	.long 0xffffffff, 0x3fefffff
@@ -1120,9 +1129,29 @@ _log2_pow:
 	.text
 
 	.globl jvm_dsin
+#ifdef _WIN32
+	.def jvm_dsin; .scl 2; .type 32; .endef
+	.balign 16
+jvm_dsin:
+	push rsi
+	push rdi
+	sub rsp, 40
+	movdqu xmmword ptr [rsp], xmm6
+	movdqu xmmword ptr [rsp + 16], xmm7
+	call .Lsin_win64
+	movdqu xmm6, xmmword ptr [rsp]
+	movdqu xmm7, xmmword ptr [rsp + 16]
+	add rsp, 40
+	pop rdi
+	pop rsi
+	ret
+	.balign 32
+.Lsin_win64:
+#else
 	.type jvm_dsin, @function
 	.balign 32
 jvm_dsin:
+#endif
 	push rbp
 	mov rbp, rsp
 	push rbx
@@ -1538,12 +1567,34 @@ jvm_dsin:
 	pop rbx
 	leave
 	ret
+#ifndef _WIN32
 	.size jvm_dsin, . - jvm_dsin
+#endif
 
 	.globl jvm_dcos
+#ifdef _WIN32
+	.def jvm_dcos; .scl 2; .type 32; .endef
+	.balign 16
+jvm_dcos:
+	push rsi
+	push rdi
+	sub rsp, 40
+	movdqu xmmword ptr [rsp], xmm6
+	movdqu xmmword ptr [rsp + 16], xmm7
+	call .Lcos_win64
+	movdqu xmm6, xmmword ptr [rsp]
+	movdqu xmm7, xmmword ptr [rsp + 16]
+	add rsp, 40
+	pop rdi
+	pop rsi
+	ret
+	.balign 32
+.Lcos_win64:
+#else
 	.type jvm_dcos, @function
 	.balign 32
 jvm_dcos:
+#endif
 	push rbp
 	mov rbp, rsp
 	push rbx
@@ -1954,12 +2005,34 @@ jvm_dcos:
 	pop rbx
 	leave
 	ret
+#ifndef _WIN32
 	.size jvm_dcos, . - jvm_dcos
+#endif
 
 	.globl jvm_dpow
+#ifdef _WIN32
+	.def jvm_dpow; .scl 2; .type 32; .endef
+	.balign 16
+jvm_dpow:
+	push rsi
+	push rdi
+	sub rsp, 40
+	movdqu xmmword ptr [rsp], xmm6
+	movdqu xmmword ptr [rsp + 16], xmm7
+	call .Lpow_win64
+	movdqu xmm6, xmmword ptr [rsp]
+	movdqu xmm7, xmmword ptr [rsp + 16]
+	add rsp, 40
+	pop rdi
+	pop rsi
+	ret
+	.balign 32
+.Lpow_win64:
+#else
 	.type jvm_dpow, @function
 	.balign 32
 jvm_dpow:
+#endif
 	push rbp
 	mov rbp, rsp
 	sub rsp, 40
@@ -2957,7 +3030,11 @@ jvm_dpow:
 	add rsp, 40
 	leave
 	ret
+#ifndef _WIN32
 	.size jvm_dpow, . - jvm_dpow
+#endif
 
+#ifndef _WIN32
 	.section .note.GNU-stack,"",@progbits
+#endif
 #endif

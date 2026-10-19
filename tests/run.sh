@@ -12,6 +12,8 @@ cd "$root"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 status=0
+# a Windows JVM separates class path entries with ';'
+case $(uname -s) in *_NT-*) sep=';' ;; *) sep=: ;; esac
 
 tests/sim_check "$tmp" || status=1
 ./syn-biogenesis --headless --defaults --quiet --seed 3 --frames 1500 \
@@ -64,7 +66,8 @@ fi
 if command -v javac >/dev/null 2>&1; then
 	javac -d "$tmp" tests/GeomCheck.java
 	java -cp "$tmp" GeomCheck 31337 200000 >"$tmp/geom_java.txt"
-	tests/geom_check 31337 200000 >"$tmp/geom_c.txt"
+	# (on Windows the C library ends the C side's lines with \r\n)
+	tests/geom_check 31337 200000 | tr -d '\r' >"$tmp/geom_c.txt"
 	if cmp -s "$tmp/geom_java.txt" "$tmp/geom_c.txt"; then
 		echo "java.awt geometry: 200000 random cases identical to the JVM"
 	else
@@ -85,7 +88,7 @@ fi
 if [ -f tools/javaref/build/biogenesis.jar ]; then
 	# .bgg files cross both ways: each side reads what the other wrote
 	# (Java validating against its DTD) and both print the same codes
-	cp="tools/javaref/build/classes:tools/javaref/build/biogenesis.jar:tools/javaref/build/jts.jar"
+	cp="tools/javaref/build/classes${sep}tools/javaref/build/biogenesis.jar${sep}tools/javaref/build/jts.jar"
 	mkdir -p "$tmp/bgg"
 	java -cp "$cp" biogenesis.BggInterop write "$tmp/bgg" 2024 50
 	tests/bgg_tool write "$tmp/bgg" 2024 50
@@ -120,7 +123,7 @@ fi
 if [ -f tools/javaref/build/biogenesis.jar ]; then
 	# .bgw: a world saved here is the file 0.9 saves; each program loads
 	# the other's and continues identically; a loaded file saves unchanged
-	cp="tools/javaref/build/classes:tools/javaref/build/biogenesis.jar:tools/javaref/build/jts.jar"
+	cp="tools/javaref/build/classes${sep}tools/javaref/build/biogenesis.jar${sep}tools/javaref/build/jts.jar"
 	headless="./syn-biogenesis --headless --defaults --quiet"
 	n=0
 	bad=0

@@ -25,6 +25,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "compat.h"
 #include "io/bgg.h"
 #include "syn/batch.h"
 #include "syn/family.h"
@@ -478,7 +479,7 @@ static void export_tree(App *a, const History *hi)
     } else if (a->last_dir_genes[0]) {
         snprintf(base, sizeof base, "%s", a->last_dir_genes);
     } else {
-        const char *home = getenv("HOME");
+        const char *home = home_dir();
         snprintf(base, sizeof base, "%s", home ? home : ".");
     }
     char dir[1400];

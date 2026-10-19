@@ -1,4 +1,6 @@
 /obj/
+/dist/
+*.exe
 /syn-biogenesis
 /syn-biogenesis-headless-libc
 /tests/geom_check

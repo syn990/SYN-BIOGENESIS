@@ -34,7 +34,7 @@
 double fd_atan2(double y, double x);
 #define bio_atan2 fd_atan2
 
-#if defined(__x86_64__) && defined(__ELF__) && !defined(BIO_LIBC_MATH)
+#if defined(__x86_64__) && (defined(__ELF__) || defined(_WIN32)) && !defined(BIO_LIBC_MATH)
 double jvm_dsin(double x);
 double jvm_dcos(double x);
 double jvm_dpow(double x, double y);

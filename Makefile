@@ -11,8 +11,30 @@ CFLAGS = -Wall -Wextra -std=c11 -O2 -g -Isrc -fwrapv -ffp-contract=off -D_DEFAUL
 LDLIBS = -lm
 
 PKG_CONFIG ?= pkg-config
-SDL_CFLAGS = $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf SDL2_image)
+# SDL's own main (SDL2main, which on Windows is the program's entry point and
+# hands main its arguments in UTF-8) is the launcher's alone; the rest is
+# compiled as if SDL had none, so the renaming of main below finds main.
+SDL_MAIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags sdl2 SDL2_ttf SDL2_image)
+SDL_CFLAGS = $(filter-out -Dmain=SDL_main,$(SDL_MAIN_CFLAGS)) -DSDL_MAIN_HANDLED
 SDL_LIBS = $(shell $(PKG_CONFIG) --libs sdl2 SDL2_ttf SDL2_image)
+
+# Windows, with MinGW-w64 (MSYS2's UCRT64): the same program,
+# syn-biogenesis.exe, a window program with an icon and a manifest
+# (src/win/).
+ifneq ($(findstring mingw,$(shell $(CC) -dumpmachine)),)
+EXE = .exe
+# M_PI, which -std=c11 leaves out there. -mcmodel=small: globals reached
+# directly, not through GCC's .refptr stubs, which the linker would share by
+# name between Color Mod's object (below, its names hidden) and Biogenesis
+# 0.9's: Color Mod's code would read 0.9's P, g_rng and k_scale.
+CFLAGS += -D_USE_MATH_DEFINES -mcmodel=small
+# Linked statically: SDL and every library it uses are in the program,
+# which needs no DLL but Windows's own, wherever it is run from.
+SDL_LIBS = $(shell $(PKG_CONFIG) --static --libs sdl2 SDL2_ttf SDL2_image)
+LDLIBS += -static
+WINDRES ?= windres
+WIN_RES = obj/win/syn-biogenesis.res.o
+endif
 
 SIM_SRC = src/sim/jrandom.c src/sim/jgeom.c src/sim/params.c src/sim/genetic_code.c \
           src/sim/organism.c src/sim/world.c src/sim/stats.c \
@@ -64,11 +86,11 @@ COLOUR_UI_SRC = src/ui/ui.c src/ui/gfx.c src/ui/filedlg.c src/ui/worldview.c \
 COLOUR_OBJ = $(patsubst src/%.c,obj/colour/%.o,$(COLOUR_SRC) $(COLOUR_UI_SRC)) \
              $(COLOUR_SHARED_OBJ)
 
-.PHONY: all libc being test clean
+.PHONY: all libc being test clean dist
 
-all: syn-biogenesis
+all: syn-biogenesis$(EXE)
 
-syn-biogenesis: $(AIO_OBJ)
+syn-biogenesis$(EXE): $(AIO_OBJ) $(WIN_RES)
 	$(CC) -o $@ $^ $(SDL_LIBS) $(LDLIBS)
 
 obj/aio/main09.o: obj/main.o
@@ -84,14 +106,21 @@ obj/aio/colour.o: $(COLOUR_OBJ)
 
 obj/aio/launcher.o: src/launcher.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(SDL_CFLAGS) -MMD -c -o $@ $<
+	$(CC) $(CFLAGS) $(SDL_MAIN_CFLAGS) -MMD -c -o $@ $<
+
+# Windows: the icon, and the manifest that runs the program in the UTF-8
+# code page (so the C library's file names are UTF-8, as SDL's text is)
+obj/win/syn-biogenesis.res.o: src/win/syn-biogenesis.rc src/win/syn-biogenesis.manifest \
+                              src/win/syn-biogenesis.ico
+	@mkdir -p $(dir $@)
+	$(WINDRES) -I src/win -O coff -o $@ $<
 
 # A tool build for tools/drift, not the program: the simulation on the C
 # library's sin/cos/pow instead of the JVM's (what builds for other
 # processors use), headless.
-libc: syn-biogenesis-headless-libc
+libc: syn-biogenesis-headless-libc$(EXE)
 
-syn-biogenesis-headless-libc: $(LIBC_OBJ)
+syn-biogenesis-headless-libc$(EXE): $(LIBC_OBJ)
 	$(CC) -o $@ $^ $(LDLIBS)
 
 obj/colour/%.o: src/%.c
@@ -131,31 +160,31 @@ obj/headless/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -DBIO_NO_GUI -MMD -c -o $@ $<
 
-tests/geom_check: tests/geom_check.c src/sim/jgeom.c src/sim/jrandom.c
+tests/geom_check$(EXE): tests/geom_check.c src/sim/jgeom.c src/sim/jrandom.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/bgg_tool: tests/bgg_tool.c $(SIM_SRC) $(MATH_OBJ)
+tests/bgg_tool$(EXE): tests/bgg_tool.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/sim_check: tests/sim_check.c $(SIM_SRC) $(MATH_OBJ)
+tests/sim_check$(EXE): tests/sim_check.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/math_check: tests/math_check.c $(MATH_OBJ)
+tests/math_check$(EXE): tests/math_check.c $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/num_check: tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
+tests/num_check$(EXE): tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/bgw_fuzz: tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
+tests/bgw_fuzz$(EXE): tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # the SYN edition's history (src/syn/history.c) beside the simulation, in
 # a world made as the window makes it (src/syn/genesis.c); the small build
 # merges its samples and epochs within a short run
-tests/history_check: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+tests/history_check$(EXE): tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/history_check_small: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
+tests/history_check_small$(EXE): tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
 
 # the colour build's .bgg reader and writer, for tests/colour.sh
@@ -163,31 +192,42 @@ COLOUR_SIM_OBJ = $(patsubst src/%.c,obj/colour/%.o,$(wildcard src/colour/sim/*.c
 
 # the same beside Color Mod's simulation (its lines are its clades, its
 # codes kept by its collector)
-tests/history_check_colour: tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c \
+tests/history_check_colour$(EXE): tests/history_check.c src/syn/history.c src/syn/family.c src/syn/genesis.c src/syn/palette.c \
                             src/colour/io/bgg.c obj/colour/colour/io/bgw.o $(COLOUR_SIM_OBJ)
 	$(CC) -Isrc/colour $(CFLAGS) -DBIO_COLOUR -DBIO_NO_GUI -DHIST_CAP=64 -DEPOCHS_CAP=4 -o $@ $^ $(LDLIBS)
-tests/colour_bgg_tool: tests/colour_bgg_tool.c src/colour/io/bgg.c $(COLOUR_SIM_OBJ)
+tests/colour_bgg_tool$(EXE): tests/colour_bgg_tool.c src/colour/io/bgg.c $(COLOUR_SIM_OBJ)
 	$(CC) -Isrc/colour $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
 
 # The being search (tools/being)
-being: tools/being/being
+being: tools/being/being$(EXE)
 
-tools/being/being: tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
+tools/being/being$(EXE): tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
 
 # File format checks, the java.awt geometry against the JVM, and the
 # frame-by-frame comparison with the Java original (the last two need a
 # JDK; see tools/javaref/README.md).
-test: syn-biogenesis tests/geom_check tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz \
-      tests/history_check tests/history_check_small tests/history_check_colour tests/colour_bgg_tool
+test: syn-biogenesis$(EXE) tests/geom_check$(EXE) tests/sim_check$(EXE) tests/bgg_tool$(EXE) \
+      tests/math_check$(EXE) tests/num_check$(EXE) tests/bgw_fuzz$(EXE) tests/history_check$(EXE) \
+      tests/history_check_small$(EXE) tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE)
 	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; [ $$a = 0 ] && [ $$b = 0 ]
 
+# The program without its debugging information, with its assets, in
+# dist/syn-biogenesis/: on Windows a folder that runs anywhere
+STRIP ?= strip
+dist: syn-biogenesis$(EXE)
+	rm -rf dist/syn-biogenesis
+	mkdir -p dist/syn-biogenesis
+	cp -r assets LICENSE dist/syn-biogenesis/
+	$(STRIP) -o dist/syn-biogenesis/syn-biogenesis$(EXE) syn-biogenesis$(EXE)
+
 clean:
-	rm -rf obj syn-biogenesis syn-biogenesis-headless-libc \
-		tests/geom_check \
-		tests/sim_check tests/bgg_tool tests/math_check tests/num_check tests/bgw_fuzz \
-		tests/history_check tests/history_check_small tests/history_check_colour tests/colour_bgg_tool \
-		tools/being/being
+	rm -rf obj dist syn-biogenesis$(EXE) syn-biogenesis-headless-libc$(EXE) \
+		tests/geom_check$(EXE) \
+		tests/sim_check$(EXE) tests/bgg_tool$(EXE) tests/math_check$(EXE) tests/num_check$(EXE) \
+		tests/bgw_fuzz$(EXE) tests/history_check$(EXE) tests/history_check_small$(EXE) \
+		tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) \
+		tools/being/being$(EXE)
 
 # compile flags live here: a change to them rebuilds what they build
 $(SYN_OBJ) $(COLOUR_OBJ) obj/aio/launcher.o: Makefile

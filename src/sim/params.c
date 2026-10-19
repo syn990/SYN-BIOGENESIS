@@ -26,6 +26,8 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "compat.h"
+
 Params P;
 JRandom g_rng;
 
@@ -113,13 +115,19 @@ const char *params_config_dir(void)
         return dir;
     const char *xdg = getenv("XDG_CONFIG_HOME");
     const char *home = getenv("HOME");
+#ifdef _WIN32
+    /* Windows keeps an application's settings in the roaming AppData */
+    const char *appdata = getenv("APPDATA");
+    if (!(xdg && *xdg) && appdata && *appdata)
+        xdg = appdata;
+#endif
     if (xdg && *xdg)
         snprintf(dir, sizeof dir, "%s/syn-biogenesis", xdg);
     else if (home && *home)
         snprintf(dir, sizeof dir, "%s/.config/syn-biogenesis", home);
     else
         snprintf(dir, sizeof dir, ".");
-    return dir;
+    return path_slashes(dir);
 }
 
 static void params_path(char *out, size_t n)

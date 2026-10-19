@@ -14,6 +14,12 @@ included, and stops on anything it does not recognise. `fetch.sh`
 downloads those files and regenerates the `.S`. `make test` checks the
 result against the installed JVM on two million inputs.
 
+The routines are written for the System V convention. On Windows each is
+entered through a frame that keeps what the Microsoft x64 convention has
+the called function keep and System V does not: `rsi` and `rdi` (which
+HotSpot's own Windows build saves, in the `_WIN64` lines the translation
+leaves out) and `xmm6` and `xmm7`. The routines themselves are the same.
+
 `pow` uses `rcpps`, whose result is not fully specified and may differ
 between CPU vendors; the port executes the same instruction, so it
 matches the JVM on the same machine.
