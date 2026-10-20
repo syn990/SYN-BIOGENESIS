@@ -1263,6 +1263,7 @@ static Action synos_top_bar(App *a, int W)
     float figs_w = -24;
     for (int i = 0; i < nfig; i++)
         figs_w += fmaxf(skin_text_width(fo->small, fig[i][0]), skin_text_width(fo->bold, fig[i][1])) + 24;
+    figs_w += synos_speed(0, 0, false) + 24;
     float left_w = 18 + skin_text_width(fo->heading, "BIOGENESIS") + 18 + 14 +
                    7 * (float)(SYN_BAR_H - 14 + 14);
     for (int m = 0; m < N_MENUS; m++)
@@ -1314,8 +1315,12 @@ static Action synos_top_bar(App *a, int W)
     float fy = (SYN_BAR_H - skin_text_height(fo->small) - skin_text_height(fo->bold) + 1) / 2;
     if (two_rows)
         fy += SYN_BAR_H - 8;
-    for (int i = 0; i < nfig; i++)
+    for (int i = 0; i < nfig; i++) {
         rx -= synos_figure(rx, fy, fig[i][0], fig[i][1], true) + 24;
+        /* the speed asked for, beside the frames a second it gets */
+        if (i == 1)
+            rx -= synos_speed(rx, fy, true) + 24;
+    }
     ui_layer_end();
     return act;
 }

@@ -200,6 +200,90 @@ void synos_shutdown(void)
     theme_list_free(&G.themes);
 }
 
+/* ---- the simulation's speed ---- */
+
+/* milliseconds a frame, slowest first: 1 to 500 frames a second, then as
+ * fast as it goes */
+static const int k_delays[] = {1000, 500, 200, 100, 50, 33, 20, 10, 5, 2, 1};
+#define N_DELAYS ((int)(sizeof k_delays / sizeof k_delays[0]))
+
+/* the step nearest a delay */
+static int speed_step(int delay)
+{
+    double d = log(delay > 1 ? (double)delay : 1.0);
+    int best = 0;
+    for (int i = 1; i < N_DELAYS; i++)
+        if (fabs(log((double)k_delays[i]) - d) < fabs(log((double)k_delays[best]) - d))
+            best = i;
+    return best;
+}
+
+float synos_speed(float right, float y, bool draw)
+{
+    const Fonts *fo = &G.fonts;
+    const float bar_w = 84, gap = 10;
+    float tw = fmaxf(skin_text_width(fo->small, "SPEED"), skin_text_width(fo->bold, "500/s"));
+    float w = tw + gap + bar_w;
+    if (!draw)
+        return w;
+    float x = right - w, th = skin_text_height(fo->small) - 1 + skin_text_height(fo->bold);
+    int step = speed_step(P.delay);
+    char value[16];
+    if (P.delay <= 1)
+        snprintf(value, sizeof value, "MAX");
+    else
+        snprintf(value, sizeof value, "%d/s", (int)lround(1000.0 / P.delay));
+    skin_text(fo->small, "SPEED", x, y, TONE_MUTED, ALIGN_LEFT);
+    skin_text(fo->bold, value, x, y + skin_text_height(fo->small) - 1, TONE_TEXT, ALIGN_LEFT);
+
+    /* the bar: slowest at the left; scrolled over, clicked or dragged */
+    UIRect bar = {x + tw + gap, y + th / 2 - 3, bar_w, 6};
+    SDL_Rect all = {(int)x, (int)y - 4, (int)w, (int)th + 8};
+    SDL_Rect grip = {(int)bar.x - 4, (int)y - 4, (int)bar_w + 8, (int)th + 8};
+    uint32_t id = ui_id("synspeed", 0);
+    int to = step;
+    /* a step a notch; a touchpad's fractions add up to one */
+    static float wheel;
+    if (ui_hover(all)) {
+        wheel += ui_wheel_fy();
+        for (; wheel >= 1; wheel -= 1)
+            to++;
+        for (; wheel <= -1; wheel += 1)
+            to--;
+    } else {
+        wheel = 0;
+    }
+    if (ui_pressed(grip, 1))
+        ui_capture(id);
+    if (ui_captured(id)) {
+        if (ui_mouse_down(1)) {
+            int mx, my;
+            ui_mouse(&mx, &my);
+            to = (int)lround(((float)mx - bar.x) / bar.w * (float)(N_DELAYS - 1));
+        } else {
+            ui_release();
+        }
+    }
+    to = to < 0 ? 0 : to >= N_DELAYS ? N_DELAYS - 1 : to;
+    if (to != step) {
+        P.delay = k_delays[to];
+        step = to;
+    }
+    skin_meter(bar, (double)step / (N_DELAYS - 1), TONE_ACCENT);
+    Rgb ac = skin_theme()->accent;
+    skin_fill(ui_rect(bar.x + bar.w * (float)step / (N_DELAYS - 1) - 2, bar.y - 4, 4, bar.h + 8), ac, 1);
+    if (ui_hover(all)) {
+        char tip[200];
+        if (P.delay <= 1)
+            snprintf(tip, sizeof tip, "As fast as the computer allows. Scroll or drag to slow it down");
+        else
+            snprintf(tip, sizeof tip, "Up to %d frames a second (%d ms each). Scroll or drag to change it",
+                     (int)lround(1000.0 / P.delay), P.delay);
+        ui_tooltip(tip);
+    }
+    return w;
+}
+
 void synos_end_frame(void)
 {
     skin_end_frame();
