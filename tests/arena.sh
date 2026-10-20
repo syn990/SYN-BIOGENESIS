@@ -53,9 +53,10 @@ else
 fi
 
 # the same run twice on one worker: the same winners, the same ladder
+# (what the program prints compared without the \r Windows ends lines with)
 run() {
 	./syn-biogenesis --arena --rounds 16 --units 50 --seed 700 --workers 1 --board "$tmp/$1.board" |
-		grep -v "frames a second" >"$tmp/$1.txt"
+		tr -d '\r' | grep -v "frames a second" >"$tmp/$1.txt"
 }
 if run a && run b && cmp -s "$tmp/a.txt" "$tmp/b.txt" && cmp -s "$tmp/a.board" "$tmp/b.board"; then
 	echo "arena: 16 rounds of the ladder on one worker, twice: the same results and ladder ($(grep -cE "^round +[0-9]+ +level " "$tmp/a.txt" || true) winners' rounds)"
@@ -72,7 +73,7 @@ rounds=$(grep -c "^round " "$tmp/a.txt" || true)
 bad=$(awk '/^round /{ lv = ($3 == "qualifying") ? 0 : $4; n = split($0, w, "level "); got = w[n] + 0;
 	if ($0 ~ /no survivors/) next; if (got != lv + 1) print }' "$tmp/a.txt")
 [ -z "$bad" ] || ok=no
-./syn-biogenesis --arena --list --board "$tmp/a.board" >"$tmp/ladder.txt"
+./syn-biogenesis --arena --list --board "$tmp/a.board" | tr -d '\r' >"$tmp/ladder.txt"
 outs=$(grep -c "knocked out by" "$tmp/ladder.txt" || true)
 top=$(awk '/^ *1 +level /{ print $3; exit }' "$tmp/ladder.txt")
 [ "$outs" -ge 1 ] && [ "${top:-0}" -ge 2 ] || ok=no
@@ -85,14 +86,17 @@ else
 fi
 
 # the ladder as saved is the one the run ended with, and prints
-./syn-biogenesis --arena --list --board "$tmp/a.board" --out "$tmp/printed" >"$tmp/list.txt"
+./syn-biogenesis --arena --list --board "$tmp/a.board" --out "$tmp/printed" | tr -d '\r' >"$tmp/list.txt"
 sed -n '/^ladder/,$p' "$tmp/a.txt" | head -11 >"$tmp/ended.txt"
 n=$(grep -c "^ *[0-9]" "$tmp/ended.txt" || true)
-if head -$((n + 1)) "$tmp/list.txt" | cmp -s - "$tmp/ended.txt" && [ -f "$tmp/printed/winners.txt" ] &&
+head -$((n + 1)) "$tmp/list.txt" >"$tmp/listed.txt"
+if cmp -s "$tmp/listed.txt" "$tmp/ended.txt" && [ -f "$tmp/printed/winners.txt" ] &&
 	[ "$(ls "$tmp/printed"/*.bgg | wc -l)" -ge "$n" ]; then
 	echo "arena: the ladder read back as saved, and printed ($(ls "$tmp/printed"/*.bgg | wc -l) codes)"
 else
 	echo "FAIL arena: the ladder didn't read back as saved, or didn't print"
+	diff "$tmp/ended.txt" "$tmp/listed.txt" || true
+	ls "$tmp/printed" || true
 	status=1
 fi
 
