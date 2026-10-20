@@ -35,6 +35,8 @@
 #include "io/bgg.h"
 #include "io/bgw.h"
 #include "sim/params.h"
+#include "syn/arena.h"
+#include "syn/arena_screen.h"
 #include "syn/genesis_screen.h"
 #include "syn/history.h"
 #include "syn/sidecar.h"
@@ -1461,6 +1463,9 @@ static Action synos_frame(App *a, int W, int H, bool keys)
         case SYNOS_OPEN_OPTIONS:
             synos_set_screen(SYNOS_OPTIONS);
             break;
+        case SYNOS_OPEN_ARENA:
+            synos_set_screen(SYNOS_ARENA);
+            break;
         case SYNOS_QUIT:
             act = A_QUIT;
             break;
@@ -1472,6 +1477,8 @@ static Action synos_frame(App *a, int W, int H, bool keys)
             act = A_SWITCH_BIOGENESIS;
     } else if (scr == SYNOS_STATS) {
         syn_stats_frame(a, W, H);
+    } else if (scr == SYNOS_ARENA) {
+        syn_arena_frame(a, W, H);
     } else {
         Action t = synos_top_bar(a, W);
         if (t != A_NONE)
@@ -1587,7 +1594,8 @@ static void frame(App *a)
 
     /* windows, back to front; modal ones last; the SYN-OS main menu and
      * options hide the world's windows until it is back */
-    if (!synos || synos_screen() == SYNOS_WORLD || synos_screen() == SYNOS_STATS) {
+    if (!synos || synos_screen() == SYNOS_WORLD || synos_screen() == SYNOS_STATS ||
+        synos_screen() == SYNOS_ARENA) {
         stats_draw(a);
         lab_draw(a);
         params_draw(a);
@@ -1909,8 +1917,8 @@ int app_run(void)
     if (shot) {
         a->active = false;
         shot_prepare(a, getenv("SYN_BIOGENESIS_SHOT_UI"));
-        /* SYN_BIOGENESIS_SHOT_SCREEN = menu | options | world | stats (world
-         * with a window or a selection) */
+        /* SYN_BIOGENESIS_SHOT_SCREEN = menu | options | world | stats | arena
+         * (world with a window or a selection) */
         const char *scr = getenv("SYN_BIOGENESIS_SHOT_SCREEN");
         if (scr ? !strcmp(scr, "world") : getenv("SYN_BIOGENESIS_SHOT_UI") != NULL) {
             synos_set_screen(SYNOS_WORLD);
@@ -1920,6 +1928,10 @@ int app_run(void)
         } else if (scr && !strcmp(scr, "stats")) {
             synos_set_screen(SYNOS_STATS);
             g_entered = true;
+        } else if (scr && !strcmp(scr, "arena")) {
+            /* SYN_BIOGENESIS_SHOT_ARENA runs rounds first (syn/arena_screen.h) */
+            syn_arena_shot_prepare();
+            synos_set_screen(SYNOS_ARENA);
         }
     }
 
@@ -1943,6 +1955,8 @@ int app_run(void)
             ui_handle_event(&e);
         }
         run_simulation(a);
+        /* the arena's rounds go on whatever is shown */
+        syn_arena_poll();
         frame(a);
         synos_end_frame();
         if (shot && !script_text && ++shot_frames == 4) {
@@ -1965,6 +1979,9 @@ int app_run(void)
     world_free(&a->world);
     syn_history_free();
     syn_stats_free();
+    /* the arena's workers stop with the simulation they run */
+    syn_arena_free();
+    syn_arena_screen_free();
     wv_free(&a->view);
     synos_shutdown();
     syn_shutdown();

@@ -33,7 +33,7 @@
 #include "synos/skin.h"
 #include "synos/theme.h"
 
-typedef enum { SYNOS_MENU, SYNOS_OPTIONS, SYNOS_WORLD, SYNOS_STATS } SynosScreen;
+typedef enum { SYNOS_MENU, SYNOS_OPTIONS, SYNOS_WORLD, SYNOS_STATS, SYNOS_ARENA } SynosScreen;
 
 typedef enum {
     SYNOS_NONE,
@@ -43,6 +43,7 @@ typedef enum {
     SYNOS_OPEN_OPTIONS,
     SYNOS_QUIT,
     SYNOS_SWITCH_SIM, /* to the other simulation (options) */
+    SYNOS_OPEN_ARENA, /* the arena (syn/arena_screen.h) */
 } SynosAction;
 
 /* title: "BIOGENESIS"; subtitle under it */

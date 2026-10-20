@@ -119,6 +119,11 @@ const Species *syn_family_parent_head(const Species *s);
 int syn_family_named(void);
 /* A family's name from its number: "VELORAX", "OMICRON II" ("" for 0). */
 void syn_family_title(int no, char *out, size_t n);
+/* The first family takes the name base places into the list (0, the
+ * default: LAEXERA), and the rest follow it round, so the arena's rounds
+ * (syn/arena.h), each a world of its own, don't all begin with the same
+ * names. */
+void syn_family_name_base(int base);
 /* Its name: "VELORAX-3", or "VELORAX" before it is numbered; "" while its
  * family has no name. */
 void syn_family_name(const Species *s, char *out, size_t n);

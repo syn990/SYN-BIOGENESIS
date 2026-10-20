@@ -22,6 +22,7 @@
  *                                 Biogenesis 0.9 as the original looks
  *   syn-biogenesis [0.9's arguments]      Biogenesis 0.9 (a seed, --headless...)
  *   syn-biogenesis --colour [arguments]   Color Mod 2.01, as its own program
+ *   syn-biogenesis [--colour] --arena ... the arena without a window
  *
  * The choice is kept in ~/.config/syn-biogenesis/variant.cfg;
  * SYN_BIOGENESIS_VARIANT=biogenesis|colour picks one for a single run. */
@@ -40,6 +41,11 @@
 
 int bio_main(int argc, char **argv);
 int colour_main(int argc, char **argv);
+/* the arena (src/syn/arena.h), of each simulation */
+int syn_arena_main(int argc, char **argv);
+int syn_arena_worker(int argc, char **argv);
+int colour_arena_main(int argc, char **argv);
+int colour_arena_worker(int argc, char **argv);
 
 BioHost bio_host;
 
@@ -121,9 +127,21 @@ int main(int argc, char **argv)
                "       syn-biogenesis --headless ...     Biogenesis 0.9 without a window\n"
                "       syn-biogenesis --colour [seed]    Color Mod 2.01\n"
                "       syn-biogenesis --colour --headless ...   Color Mod 2.01 without a window\n"
-               "syn-biogenesis --headless --help and --colour --headless --help list their options.\n");
+               "       syn-biogenesis [--colour] --arena ...    the arena without a window: rounds\n"
+               "                                                of its ladder on every core\n"
+               "syn-biogenesis --headless --help and --colour --headless --help list their options,\n"
+               "and --arena --help the arena's.\n");
         return 0;
     }
+    /* the arena's workers (started by the arena itself), and the arena
+     * without a window */
+    if (argc > 2 && !strcmp(argv[1], "--arena-worker"))
+        return !strcmp(argv[2], "colour") ? colour_arena_worker(argc - 2, argv + 2)
+                                          : syn_arena_worker(argc - 2, argv + 2);
+    if (argc > 1 && !strcmp(argv[1], "--arena"))
+        return syn_arena_main(argc, argv);
+    if (argc > 2 && !strcmp(argv[1], "--colour") && !strcmp(argv[2], "--arena"))
+        return colour_arena_main(argc - 1, argv + 1);
     if (argc > 1 && !strcmp(argv[1], "--colour")) {
         v = V_COLOUR;
         /* swapped, not overwritten: on Windows SDL's main frees each of

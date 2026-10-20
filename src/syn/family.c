@@ -617,6 +617,15 @@ int syn_family_named(void)
     return F.named;
 }
 
+/* where the names start in the list (syn_family_name_base) */
+static int name_base;
+
+void syn_family_name_base(int base)
+{
+    const int count = (int)(sizeof k_family_names / sizeof k_family_names[0]);
+    name_base = (base % count + count) % count;
+}
+
 void syn_family_title(int no, char *out, size_t n)
 {
     out[0] = '\0';
@@ -624,7 +633,7 @@ void syn_family_title(int no, char *out, size_t n)
         return;
     const int count = (int)(sizeof k_family_names / sizeof k_family_names[0]);
     int round = (no - 1) / count + 1;
-    const char *g = k_family_names[(no - 1) % count];
+    const char *g = k_family_names[(name_base + no - 1) % count];
     if (round == 1) {
         snprintf(out, n, "%s", g);
         return;

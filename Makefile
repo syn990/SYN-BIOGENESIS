@@ -100,8 +100,10 @@ obj/aio/main09.o: obj/main.o
 obj/aio/colour.o: $(COLOUR_OBJ)
 	@mkdir -p $(dir $@)
 	$(LD) -r -o $@.all $^
-	$(OBJCOPY) --redefine-sym main=colour_main $@.all
-	$(OBJCOPY) --keep-global-symbol=colour_main $@.all $@
+	$(OBJCOPY) --redefine-sym main=colour_main --redefine-sym syn_arena_main=colour_arena_main \
+		--redefine-sym syn_arena_worker=colour_arena_worker $@.all
+	$(OBJCOPY) --keep-global-symbol=colour_main --keep-global-symbol=colour_arena_main \
+		--keep-global-symbol=colour_arena_worker $@.all $@
 	rm -f $@.all
 
 obj/aio/launcher.o: src/launcher.c
@@ -210,7 +212,7 @@ tools/being/being$(EXE): tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
 test: syn-biogenesis$(EXE) tests/geom_check$(EXE) tests/sim_check$(EXE) tests/bgg_tool$(EXE) \
       tests/math_check$(EXE) tests/num_check$(EXE) tests/bgw_fuzz$(EXE) tests/history_check$(EXE) \
       tests/history_check_small$(EXE) tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE)
-	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; [ $$a = 0 ] && [ $$b = 0 ]
+	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; tests/arena.sh; c=$$?; [ $$a = 0 ] && [ $$b = 0 ] && [ $$c = 0 ]
 
 # The program without its debugging information, with its assets, in
 # dist/syn-biogenesis/: on Windows a folder that runs anywhere
