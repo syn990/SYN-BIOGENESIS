@@ -342,6 +342,75 @@ modern HotSpot computes on x86_64. A saved world (`.bgw` or `.sbw`) holds
 every organism's exact state but not the random-number stream, which
 neither program saves, so a loaded world takes a new path from there.
 
+### The dice telescope: a world's seed, read back from its save
+
+Laplace's demon needs the state and the rules. A saved world has the
+state but not the random stream. In the SYN edition,
+`syn-biogenesis --telescope` gets the stream back by treating
+java.util.Random as algebra rather than as a sequence. Every draw is the
+same step, x → A·x + B (mod 2⁴⁸), with A = 0x5DEECE66D and B = 11. So:
+
+- **Any number of draws ahead or back** is one affine map, built in about
+  log₂ n compositions: `--telescope jump STATE N` (N negative to go back).
+- **A seed counts only through its 48 low bits.** `setSeed` keeps (seed XOR
+  A) mod 2⁴⁸, and every 48-bit state is the start of exactly one seed in
+  [0, 2⁴⁸): `--telescope seed S`. Seeds 42 and 42 + 2⁴⁸ make the same world
+  (checked on the jar), so there are at most 2⁴⁸ worlds for each set of
+  parameters.
+- **A gene's length gives away the state that drew it.** The length is
+  2 + 16u, and u = `nextDouble()` is 53 bits of two consecutive states. A
+  length read exactly leaves one state that could have drawn it, found
+  among 4 million candidates in milliseconds: `--telescope gene LENGTH`.
+
+A world keeps its genes, and a founder's gene that no mutation has touched
+since tick 0 is still the draw the generator made when the founders were
+made. `--telescope world FILE` cracks the world's gene lengths, commonest
+first, steps the generator back from each (4,096 draws), and makes the
+founders from every state on the way. The seeds whose founders include the
+gene are ranked by how many of their founders' genes are still in the
+world, and replayed from tick 0 until one gives the saved world exactly.
+The replay is the proof: a seed a founder's worth of draws earlier or later
+makes a near twin, with most of the same founders.
+
+Replays of the wrong seeds are cut short. The save's statistics keep
+records with the time unit each was set in (the highest and lowest O2, CO2
+and population, the most children, kills and infections), and the oldest
+organism's age gives the tick it was born. A wrong seed is turned away at
+the first of these it gets wrong. When the right one is found, the end of
+its replay is the generator's state at the saved tick, the one thing the
+file lacks.
+
+On worlds the 0.9 jar made and saved itself, from seeds the telescope was
+not told:
+
+| Saved by the jar | Organisms | Founder genes still there | Found | Replays | Time |
+|---|---|---|---|---|---|
+| seed 123456789, tick 0 | 15 | 56 of 56 | seed 123456789 | 1 | 0.2 s |
+| seed 123456789, tick 3,000 | 73 | 50 of 56 | seed 123456789 | 1 | 0.4 s |
+| seed 1760990000123, tick 20,000 | 58 | 7 of 86 | seed 1760990000123 | 7, six turned away at tick 512 | 3.4 s |
+| seed 98765, tick 60,000 | 90 | 1 of 61 | seed 98765 | 511, 510 turned away by tick 7,424 | 6.4 min |
+
+The founders are the telescope's only way back to tick 0, and over a long
+run their genes go: a gene's length is redrawn in 5% of births, so along a
+line of 200 generations about one length in 30,000 comes through unchanged.
+In `syn1.sbw`, a world played to tick 1,494,509, the best of the 17,269
+seeds the telescope finds share three genes with it, no more than wrong
+seeds do (in the 60,000-tick world above, 376 wrong seeds shared two or
+more), and its earliest record is from tick 888,320, so every wrong seed
+would cost that many ticks to turn away. A gene born of a later mutation
+gives the generator's state at the moment it was drawn, but not how many
+draws came before it. And anything done to a world from the menus (an
+import, CO2 added) takes it off the thread its seed began, so no seed
+replays to it.
+
+**On its own thread.** The generator's state at the saved tick is what a
+loaded world needs to go on as the world it was, not down a new path:
+`syn-biogenesis --headless --load FILE --generator STATE` opens the save
+with the generator where it was. Checked against the jar: its save of seed
+123456789 at tick 3,000, run 1,000 frames from the generator the telescope
+found, is byte for byte the file the jar itself saves at tick 4,000 (in
+`make test`).
+
 ## The ultimate being
 
 A fast, exact simulation can play the game for you. [`docs/being/`](docs/being/README.md)
@@ -828,7 +897,8 @@ src/colour/     Color Mod 2.01: sim/ (organism and genetic_code translated from
 src/syn/        the SYN edition's world view: navigation, the looks, batched drawing;
                 its history (history.c), family tree (family.c, family_view.c)
                 and statistics screen (stats_screen.c);
-                palette.c, the segment colours of both simulations
+                palette.c, the segment colours of both simulations;
+                the arena (arena*.c); the dice telescope (telescope.c)
 src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
                 (SYN-DEBT's, drawn with SDL_Renderer), the main menu and options
 src/headless.c, src/main.c   Biogenesis 0.9 without a window, its arguments
@@ -861,6 +931,11 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
 - worlds saved by the jar and by the port, compared byte for byte, loaded
   by the other and continued
 - the frame-by-frame comparison with the shipped jar
+- the dice telescope: jumps land where single draws do, seeds start where
+  `setSeed` starts them, every gene length and angle the simulation draws
+  cracks back to its state, and the seed of a world the jar saved at tick
+  3,000 is found from the save and replayed identical; that save, run
+  1,000 frames on from the generator found, is the jar's own tick 4,000
 - the SYN edition's history, for both simulations: the same world run with
   and without it hashes the same every frame and saves the same `.bgw`,
   and its books add up; the recorded run's world is made an organism at a

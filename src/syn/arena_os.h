@@ -38,6 +38,12 @@ typedef struct {
 
 /* syn-biogenesis --arena-worker SIM [--nice] */
 bool arena_os_start(ArenaProc *p, const char *sim, bool nice, char *err, size_t n);
+/* syn-biogenesis ARGS: this program again with arguments of its own (the
+ * telescope's search), on the same pipes. */
+bool arena_os_spawn(ArenaProc *p, const char *const *args, int nargs, char *err, size_t n);
+/* In a program started by arena_os_spawn, before anything: its priority
+ * lowered, and made to end with the program that started it. */
+void arena_os_child_begin(void);
 /* What the worker has said so far, up to n bytes: how many; 0 when nothing
  * is waiting; -1 when it has gone (and all it said has been read). */
 long arena_os_read(ArenaProc *p, void *buf, size_t n);

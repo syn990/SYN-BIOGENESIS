@@ -56,14 +56,18 @@ static int usage(void)
     fprintf(stderr, "usage: syn-biogenesis [seed]\n"
                     "       syn-biogenesis --headless [--frames N] [--seed S] [--dump FILE]\n"
                     "                      [--every K] [--hash FILE] [--report K] [--defaults]\n"
-                    "                      [--load FILE] [--save FILE] [--quiet]\n");
+                    "                      [--load FILE] [--save FILE] [--quiet]\n"
+                    "                      [--generator STATE]\n"
+                    "  --generator STATE  the random generator's 48-bit state to go on from (what\n"
+                    "                     --telescope world gives for a saved world)\n");
     return 2;
 }
 
 int main(int argc, char **argv)
 {
-    bool headless = false, defaults = false, seeded = false;
+    bool headless = false, defaults = false, seeded = false, generator = false;
     long long seed = 0;
+    unsigned long long state = 0;
     HeadlessOptions h = {.frames = 10000, .dump_every = 1, .report_every = 0};
 
     for (int i = 1; i < argc; i++) {
@@ -96,6 +100,12 @@ int main(int argc, char **argv)
             h.load_path = argv[++i];
         } else if (!strcmp(a, "--save") && i + 1 < argc) {
             h.save_path = argv[++i];
+        } else if (!strcmp(a, "--generator") && i + 1 < argc) {
+            char *end;
+            state = strtoull(argv[++i], &end, 0);
+            if (*end)
+                return usage();
+            generator = true;
         } else if (a[0] != '-' && parse_long(a, &v)) {
             /* the original's only argument: java -jar biogenesis.jar [random seed] */
             seed = v;
@@ -112,6 +122,8 @@ int main(int argc, char **argv)
         jr_set_seed(&g_rng, (int64_t)seed);
     else
         jr_seed_from_time(&g_rng);
+    if (generator)
+        g_rng.seed = state & ((1ULL << 48) - 1);
 
     if (headless)
         return headless_run(&h);

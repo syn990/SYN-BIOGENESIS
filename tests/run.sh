@@ -16,6 +16,7 @@ status=0
 case $(uname -s) in *_NT-*) sep=';' ;; *) sep=: ;; esac
 
 tests/sim_check "$tmp" || status=1
+tests/telescope_check || status=1
 ./syn-biogenesis --headless --defaults --quiet --seed 3 --frames 1500 \
 	--save "$tmp/fuzz.bgw" && tests/bgw_fuzz "$tmp/fuzz.bgw" 800 || status=1
 
@@ -152,6 +153,30 @@ if [ -f tools/javaref/build/biogenesis.jar ]; then
 		echo ".bgw: $n worlds saved as 0.9 saves them, loaded both ways, continued identically"
 	else
 		echo "FAIL .bgw: $bad differences"
+		status=1
+	fi
+
+	# the dice telescope: the seed of a world the 0.9 jar made and saved,
+	# found from the save alone and proved by replaying it
+	java -cp "$cp" biogenesis.BgwRun 123456789 3000 - save "$tmp/t.bgw"
+	if ./syn-biogenesis --telescope world "$tmp/t.bgw" --defaults >"$tmp/t.txt" &&
+		grep -q "^seed 123456789 " "$tmp/t.txt"; then
+		echo "telescope: the seed of a world the 0.9 jar saved at tick 3000 found from the save, replayed identical"
+	else
+		echo "FAIL telescope: the seed of the jar's world not found"
+		cat "$tmp/t.txt"
+		status=1
+	fi
+	# and the world goes on from its save as the jar's own did: 1000 more
+	# frames from the generator found are the jar's tick 4000, to the byte
+	gen=$(sed -n 's/^the generator at the saved tick: //p' "$tmp/t.txt")
+	java -cp "$cp" biogenesis.BgwRun 123456789 4000 - save "$tmp/t4000j.bgw"
+	if [ -n "$gen" ] &&
+		./syn-biogenesis --headless --defaults --quiet --load "$tmp/t.bgw" --generator "$gen" \
+			--frames 1000 --save "$tmp/t4000c.bgw" && cmp -s "$tmp/t4000j.bgw" "$tmp/t4000c.bgw"; then
+		echo "telescope: that save opened with the generator found and run 1000 frames is the jar's own tick 4000"
+	else
+		echo "FAIL telescope: the save opened on its thread is not the jar's tick 4000"
 		status=1
 	fi
 

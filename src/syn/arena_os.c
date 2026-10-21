@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <fcntl.h>
 #include <io.h>
+#include <wchar.h>
 
 /* The workers are in it, and it closes with the program however that ends,
  * taking them with it. */
@@ -52,24 +53,67 @@ static void fail(char *err, size_t n, const char *what)
     snprintf(err, n, "%s (Windows error %lu)", what, (unsigned long)GetLastError());
 }
 
+/* an argument for the command line as CommandLineToArgvW reads it back:
+ * quoted if it has to be, backslashes before a quote doubled */
+static bool quote_arg(wchar_t *cmd, size_t *k, size_t cap, const char *arg)
+{
+    static wchar_t w[8192];
+    if (!MultiByteToWideChar(CP_UTF8, 0, arg, -1, w, 8192))
+        return false;
+    bool plain = w[0] && !wcspbrk(w, L" \t\"");
+    if (*k + 2 * wcslen(w) + 4 >= cap)
+        return false;
+    cmd[(*k)++] = L' ';
+    if (plain) {
+        for (const wchar_t *c = w; *c; c++)
+            cmd[(*k)++] = *c;
+        return true;
+    }
+    cmd[(*k)++] = L'"';
+    for (const wchar_t *c = w;; c++) {
+        size_t bs = 0;
+        while (*c == L'\\') {
+            bs++;
+            c++;
+        }
+        if (!*c) {
+            for (size_t i = 0; i < 2 * bs; i++)
+                cmd[(*k)++] = L'\\';
+            break;
+        }
+        for (size_t i = 0; i < (*c == L'"' ? 2 * bs + 1 : bs); i++)
+            cmd[(*k)++] = L'\\';
+        cmd[(*k)++] = *c;
+    }
+    cmd[(*k)++] = L'"';
+    return true;
+}
+
 bool arena_os_start(ArenaProc *p, const char *sim, bool nice, char *err, size_t n)
 {
-    static wchar_t exe[32768], cmd[32768 + 64];
+    const char *args[] = {"--arena-worker", sim, "--nice"};
+    return arena_os_spawn(p, args, nice ? 3 : 2, err, n);
+}
+
+bool arena_os_spawn(ArenaProc *p, const char *const *args, int nargs, char *err, size_t n)
+{
+    static wchar_t exe[32768], cmd[65536];
     DWORD len = GetModuleFileNameW(NULL, exe, 32768);
     if (!len || len >= 32768) {
         fail(err, n, "this program's path is unknown");
         return false;
     }
-    /* "exe" --arena-worker SIM [--nice] */
+    /* "exe" ARGS */
     size_t k = 0;
     cmd[k++] = L'"';
     for (DWORD i = 0; i < len; i++)
         cmd[k++] = exe[i];
     cmd[k++] = L'"';
-    char args[64];
-    snprintf(args, sizeof args, " --arena-worker %s%s", sim, nice ? " --nice" : "");
-    for (const char *c = args; *c; c++)
-        cmd[k++] = (wchar_t)(unsigned char)*c;
+    for (int i = 0; i < nargs; i++)
+        if (!quote_arg(cmd, &k, sizeof cmd / sizeof *cmd, args[i])) {
+            snprintf(err, n, "an argument too long: %s", args[i]);
+            return false;
+        }
     cmd[k] = 0;
 
     /* the worker's ends inherited, these not */
@@ -178,6 +222,12 @@ void arena_os_wait(const int *from, int n, int ms)
     }
 }
 
+void arena_os_child_begin(void)
+{
+    /* it ends with the program through the job it was put in */
+    SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+}
+
 int arena_os_worker_begin(bool nice)
 {
     if (nice)
@@ -234,6 +284,12 @@ extern char **environ;
 
 bool arena_os_start(ArenaProc *p, const char *sim, bool nice, char *err, size_t n)
 {
+    const char *args[] = {"--arena-worker", sim, "--nice"};
+    return arena_os_spawn(p, args, nice ? 3 : 2, err, n);
+}
+
+bool arena_os_spawn(ArenaProc *p, const char *const *args, int nargs, char *err, size_t n)
+{
     /* a worker gone is seen when its pipe closes, not by a signal */
     signal(SIGPIPE, SIG_IGN);
     int job[2], msg[2];
@@ -254,7 +310,10 @@ bool arena_os_start(ArenaProc *p, const char *sim, bool nice, char *err, size_t 
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_adddup2(&fa, job[0], 0);
     posix_spawn_file_actions_adddup2(&fa, msg[1], 1);
-    char *argv[] = {"syn-biogenesis", "--arena-worker", (char *)sim, nice ? "--nice" : NULL, NULL};
+    char *argv[34] = {"syn-biogenesis"};
+    for (int i = 0; i < nargs && i < 32; i++)
+        argv[i + 1] = (char *)args[i];
+    argv[(nargs < 32 ? nargs : 32) + 1] = NULL;
     pid_t pid;
     int rc = posix_spawn(&pid, "/proc/self/exe", &fa, NULL, argv, environ);
     posix_spawn_file_actions_destroy(&fa);
@@ -302,6 +361,12 @@ void arena_os_wait(const int *from, int n, int ms)
     for (int i = 0; i < n && np < 64; i++)
         pf[np++] = (struct pollfd){.fd = from[i], .events = POLLIN};
     poll(pf, (nfds_t)np, ms);
+}
+
+void arena_os_child_begin(void)
+{
+    setpriority(PRIO_PROCESS, 0, 10);
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
 }
 
 int arena_os_worker_begin(bool nice)

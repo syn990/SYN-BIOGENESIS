@@ -1,0 +1,65 @@
+/* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
+ * Copyright (C) 2026 syn990
+ *
+ * Part of the SYN edition of SYN-BIOGENESIS, a C port of Biogenesis
+ * (https://biogenesis.sourceforge.net/).
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version. It is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+ * Public License (LICENSE) for more details.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+/* The dice telescope: Biogenesis 0.9's random generator as algebra
+ * rather than as a stream.
+ *
+ * Every random decision in a world is a draw from one java.util.Random, a
+ * 48-bit linear congruential generator, and every draw is the same affine
+ * step x -> A x + B (mod 2^48). That gives three things:
+ * - The state n draws later, or n draws earlier, is a single affine map,
+ *   reached in about log n compositions whichever way n points.
+ * - A seed is only its 48 low bits: Random.setSeed keeps (seed ^ A) mod
+ *   2^48, and every 48-bit state is the first state of exactly one seed in
+ *   [0, 2^48).
+ * - A gene's length is 2 + 16u, with u = nextDouble() made from 53 bits of
+ *   two consecutive states, so a length read exactly leaves only a few
+ *   states (almost always one) that could have drawn it. A gene's angle,
+ *   2 pi u, does the same with slightly less certainty.
+ *
+ * A saved world carries its organisms' genes. A founder's gene that no
+ * mutation has touched since is still the draw the generator made at tick
+ * 0. From one of those, `--telescope world` steps the generator back to the
+ * seed the world was made from, then replays the world from that seed to
+ * the saved tick as the proof.
+ *
+ * Only Biogenesis 0.9 for now. Nothing here changes the simulation: it
+ * reads saved worlds and runs world_genesis and world_time as they are.
+ */
+#ifndef SYN_TELESCOPE_H
+#define SYN_TELESCOPE_H
+
+#include <stdint.h>
+
+#define TEL_MASK ((1ULL << 48) - 1)
+
+/* The generator's state n draws after `state` (n < 0: before it). */
+uint64_t tel_jump(uint64_t state, int64_t n);
+/* The state Random.setSeed(seed) leaves, and back: the seed in [0, 2^48)
+ * that starts at that state. */
+uint64_t tel_seed_state(int64_t seed);
+int64_t tel_state_seed(uint64_t state);
+/* Every state from which the next draws make exactly this gene length
+ * (gene_randomize_length) or this angle (gene_randomize_theta); at most
+ * max are written to out, and the count found is returned. */
+int tel_crack_length(double length, uint64_t *out, int max);
+int tel_crack_theta(double theta, uint64_t *out, int max);
+
+/* syn-biogenesis --telescope ... */
+int syn_telescope_main(int argc, char **argv);
+
+#endif

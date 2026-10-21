@@ -180,6 +180,10 @@ tests/num_check$(EXE): tests/num_check.c $(SIM_SRC) $(MATH_OBJ)
 tests/bgw_fuzz$(EXE): tests/bgw_fuzz.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+# the dice telescope (src/syn/telescope.c) against the generator
+tests/telescope_check$(EXE): tests/telescope_check.c src/syn/telescope.c src/syn/arena_os.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
 # the SYN edition's history (src/syn/history.c) beside the simulation, in
 # a world made as the window makes it (src/syn/genesis.c); the small build
 # merges its samples and epochs within a short run
@@ -211,7 +215,8 @@ tools/being/being$(EXE): tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
 # JDK; see tools/javaref/README.md).
 test: syn-biogenesis$(EXE) tests/geom_check$(EXE) tests/sim_check$(EXE) tests/bgg_tool$(EXE) \
       tests/math_check$(EXE) tests/num_check$(EXE) tests/bgw_fuzz$(EXE) tests/history_check$(EXE) \
-      tests/history_check_small$(EXE) tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE)
+      tests/history_check_small$(EXE) tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) \
+      tests/telescope_check$(EXE)
 	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; tests/arena.sh; c=$$?; [ $$a = 0 ] && [ $$b = 0 ] && [ $$c = 0 ]
 
 # The program without its debugging information, with its assets, in
@@ -228,7 +233,7 @@ clean:
 		tests/geom_check$(EXE) \
 		tests/sim_check$(EXE) tests/bgg_tool$(EXE) tests/math_check$(EXE) tests/num_check$(EXE) \
 		tests/bgw_fuzz$(EXE) tests/history_check$(EXE) tests/history_check_small$(EXE) \
-		tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) \
+		tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) tests/telescope_check$(EXE) \
 		tools/being/being$(EXE)
 
 # compile flags live here: a change to them rebuilds what they build

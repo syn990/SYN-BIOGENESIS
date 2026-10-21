@@ -46,6 +46,8 @@ int syn_arena_main(int argc, char **argv);
 int syn_arena_worker(int argc, char **argv);
 int colour_arena_main(int argc, char **argv);
 int colour_arena_worker(int argc, char **argv);
+/* the dice telescope (src/syn/telescope.h), Biogenesis 0.9's */
+int syn_telescope_main(int argc, char **argv);
 
 BioHost bio_host;
 
@@ -129,8 +131,10 @@ int main(int argc, char **argv)
                "       syn-biogenesis --colour --headless ...   Color Mod 2.01 without a window\n"
                "       syn-biogenesis [--colour] --arena ...    the arena without a window: rounds\n"
                "                                                of its ladder on every core\n"
+               "       syn-biogenesis --telescope ...    Biogenesis 0.9's random generator as algebra:\n"
+               "                                         jumps, gene lengths, a saved world's seed\n"
                "syn-biogenesis --headless --help and --colour --headless --help list their options,\n"
-               "and --arena --help the arena's.\n");
+               "--arena --help the arena's and --telescope --help the telescope's.\n");
         return 0;
     }
     /* the arena's workers (started by the arena itself), and the arena
@@ -140,6 +144,8 @@ int main(int argc, char **argv)
                                           : syn_arena_worker(argc - 2, argv + 2);
     if (argc > 1 && !strcmp(argv[1], "--arena"))
         return syn_arena_main(argc, argv);
+    if (argc > 1 && !strcmp(argv[1], "--telescope"))
+        return syn_telescope_main(argc - 1, argv + 1);
     if (argc > 2 && !strcmp(argv[1], "--colour") && !strcmp(argv[2], "--arena"))
         return colour_arena_main(argc - 1, argv + 1);
     if (argc > 1 && !strcmp(argv[1], "--colour")) {

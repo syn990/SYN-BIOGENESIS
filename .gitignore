@@ -13,6 +13,7 @@
 /tests/history_check_small
 /tests/history_check_colour
 /tests/colour_bgg_tool
+/tests/telescope_check
 /tools/javaref/download/
 /tools/javaref/build/
 /tools/javaref/colour/build/
