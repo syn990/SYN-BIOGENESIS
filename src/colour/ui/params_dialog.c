@@ -22,6 +22,7 @@
  * the check ParamDialog.checkParams makes (params_fields.h, generated from
  * the Java). Fields are text, parsed on OK; a value that doesn't parse or
  * fails its check keeps the old one, as in the original. */
+#include <ctype.h>
 #include <errno.h>
 #include <math.h>
 #include <stddef.h>
@@ -209,4 +210,154 @@ void params_draw(App *a)
     } else if (cancel) {
         d->win.open = false;
     }
+}
+
+/* ---- the same fields, for SYN-OS's PARAMETERS screen ---- */
+
+/* the "Automatic backups" choice is the field after the last, its text Yes or No */
+static char g_backup_text[8] = "No";
+
+static void backup_text(void)
+{
+    snprintf(g_backup_text, sizeof g_backup_text, "%s", g_auto_backup ? "Yes" : "No");
+}
+
+int params_count(void)
+{
+    return N_FIELDS + 1;
+}
+
+int params_tab_count(void)
+{
+    return N_TABS;
+}
+
+const char *params_tab(int t)
+{
+    static char up[N_TABS][24];
+    if (t < 0 || t >= N_TABS)
+        return "";
+    for (int i = 0; k_tabs[t][i] && i < 23; i++)
+        up[t][i] = (char)toupper((unsigned char)k_tabs[t][i]);
+    return up[t];
+}
+
+bool params_tab_genes(int t)
+{
+    return t >= GENE_TABS_FROM;
+}
+
+const char *params_tab_note(int t)
+{
+    if (t >= GENE_TABS_FROM)
+        return "Probability: how often a random gene is each colour, against the others. Effectivity: "
+               "as Color Mod's own dialog has it, for each colour.";
+    if (t == 1)
+        return "Size and atmosphere apply to the next new world.";
+    return NULL;
+}
+
+void params_info(int i, ParamsField *out)
+{
+    if (i == N_FIELDS) {
+        *out = (ParamsField){.tab = 0, .label = "Automatic backups:", .type = 'c',
+                             .help = "A backup beside the world's file every so often, its time in its name."};
+        return;
+    }
+    const Field *f = &k_fields[i];
+    size_t o = f->off;
+    *out = (ParamsField){
+        .tab = f->tab,
+        .label = f->label,
+        .unit = f->suffix,
+        .type = f->type,
+        .next_world = o == offsetof(Params, world_width) || o == offsetof(Params, world_height) ||
+                      o == offsetof(Params, initial_o2) || o == offsetof(Params, initial_co2) ||
+                      o == offsetof(Params, initial_ch4) || o == offsetof(Params, initial_organisms) ||
+                      o == offsetof(Params, initial_energy),
+        .genesis = o == offsetof(Params, initial_organisms),
+    };
+    if (o == offsetof(Params, delay))
+        out->help = "How long a frame takes at least. 1 runs the world as fast as this computer allows; the "
+                    "bar's speed is this setting.";
+}
+
+char *params_text(App *a, int i)
+{
+    return i == N_FIELDS ? g_backup_text : a->params.f[i];
+}
+
+size_t params_text_cap(void)
+{
+    return sizeof ((ParamsDialog *)0)->f[0];
+}
+
+/* as apply reads it */
+static bool read_field(int i, const char *t)
+{
+    const Field *f = &k_fields[i];
+    char *end;
+    errno = 0;
+    if (f->type == 'i') {
+        long v = strtol(t, &end, 10);
+        return end != t && !*end && !errno && v <= 2147483647L && v >= -2147483647L - 1 &&
+               field_ok(i, (double)v);
+    }
+    double v = strtod(t, &end);
+    return end != t && !*end && !errno && isfinite(v) && field_ok(i, v);
+}
+
+bool params_valid(App *a, int i)
+{
+    return i == N_FIELDS || read_field(i, a->params.f[i]);
+}
+
+bool params_changed(App *a, int i)
+{
+    if (i == N_FIELDS)
+        return (strcmp(g_backup_text, "Yes") == 0) != P.auto_backup;
+    char now[32];
+    fmt_field(now, sizeof now, &k_fields[i], &P);
+    return strcmp(now, a->params.f[i]) != 0;
+}
+
+void params_default_text(int i, char *out, size_t n)
+{
+    Params def;
+    params_set_defaults(&def);
+    if (i == N_FIELDS)
+        snprintf(out, n, "%s", def.auto_backup ? "Yes" : "No");
+    else
+        fmt_field(out, n, &k_fields[i], &def);
+}
+
+bool params_is_default(App *a, int i)
+{
+    char def[32];
+    params_default_text(i, def, sizeof def);
+    return strcmp(def, params_text(a, i)) == 0;
+}
+
+void params_reload(App *a)
+{
+    load_fields(&a->params, &P);
+    backup_text();
+}
+
+void params_defaults(App *a)
+{
+    Params def;
+    params_set_defaults(&def);
+    load_fields(&a->params, &def);
+    backup_text();
+}
+
+void params_commit(App *a)
+{
+    g_auto_backup = strcmp(g_backup_text, "Yes") == 0;
+    apply(&a->params);
+    for (int i = 0; i < N_FIELDS; i++)
+        if (read_field(i, a->params.f[i]))
+            fmt_field(a->params.f[i], sizeof a->params.f[i], &k_fields[i], &P);
+    backup_text();
 }

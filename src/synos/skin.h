@@ -70,10 +70,22 @@ typedef struct {
     TTF_Font *small;      /* 13 */
     TTF_Font *small_bold; /* 13 bold, table headers */
     TTF_Font *ui;         /* 14, the size Biogenesis' dialogs are laid out for */
+    /* SYN-OS's own desktop: Terminus (SYN Terminal) as labwc, mako, foot
+     * and wmenu write, for what the machine says, and Font Awesome, the
+     * icons waybar draws. Noto Sans in their place when they can't be read. */
+    TTF_Font *mono;            /* 16, the console */
+    TTF_Font *mono_bold;       /* 16 bold */
+    TTF_Font *mono_small;      /* 14, menus, notifications, key hints */
+    TTF_Font *mono_small_bold; /* 14 bold */
+    TTF_Font *icon;            /* 15 */
+    TTF_Font *icon_big;        /* 20 */
 } Fonts;
 
 /* Opens the fonts (Noto Sans, from the assets) and the text cache. */
 bool skin_init(SDL_Renderer *r, const char *font_path, Fonts *out);
+/* Then SYN-OS's: SYN Terminal regular and bold, and Font Awesome. A font
+ * missing is Noto Sans instead, so nothing goes blank. */
+void skin_init_desktop(const char *mono, const char *mono_bold, const char *icons, Fonts *out);
 void skin_shutdown(Fonts *f);
 /* Once per frame: lets the text cache drop strings no longer drawn. */
 void skin_end_frame(void);
@@ -114,10 +126,40 @@ void skin_button_tone(UIRect r, TTF_Font *f, const char *label, WidgetState st, 
 /* A text box: sunk into the page, lit when it has the keyboard, red when refused. */
 void skin_input(UIRect r, bool focused, bool hover, bool invalid);
 void skin_tab(UIRect r, TTF_Font *f, const char *label, WidgetState st);
+/* A button's or a tab's chrome alone, for a label of the caller's own (an
+ * icon beside the words): the tone the label goes in. */
+Tone skin_button_chrome(UIRect r, WidgetState st, bool over_scene);
+Tone skin_tab_chrome(UIRect r, WidgetState st);
 void skin_row_hover(UIRect r);
 void skin_separator(float x, float y, float w);
 void skin_meter(UIRect r, double fraction, Tone tone);   /* a thin progress bar */
 void skin_swatches(UIRect r, const Theme *t);             /* a theme's palette at a glance */
+
+/* ---- SYN-OS's desktop ---- */
+
+/* A waybar module: the box a figure sits in on the bar, as the family's
+ * waybar style draws it. level 0 is normal, 1 waybar's .warning, 2 its
+ * .critical (which blinks). Returns the tone to write in. */
+Tone skin_module(UIRect r, WidgetState st, int level);
+/* A readout's well, sunk into the panel (SYN-TREK's), in the family's way. */
+void skin_well(UIRect r);
+/* A key, as the hints and buttons show it: "P", "Ctrl+S". Width for f. */
+float skin_keycap_width(TTF_Font *f, const char *key);
+void skin_keycap(UIRect r, TTF_Font *f, const char *key);
+/* A notification, as mako draws it on SYN-OS: the panel colour inside a
+ * 3px border in the accent, or the urgent colour. */
+void skin_note(UIRect r, bool urgent);
+/* The theme's SYN_GLYPH (the bar's launcher mark), size px high, centred
+ * on cx, cy, in the accent; icons is the font for the glyphs that are
+ * Font Awesome's. */
+void skin_glyph(float cx, float cy, float size, TTF_Font *icons);
+/* A title bar, as the family's labwc theme draws an active window's:
+ * the colour its label goes in. */
+Rgb skin_titlebar(UIRect r);
+/* A tone's colour */
+Rgb skin_tone(Tone t);
+/* Strokes for the shapes that aren't boxes: a line w thick. */
+void skin_line(float x0, float y0, float x1, float y1, float w, Rgb c, float alpha);
 
 /* Hover test with SDL mouse coordinates. */
 static inline bool skin_hit(UIRect r, int mx, int my) {

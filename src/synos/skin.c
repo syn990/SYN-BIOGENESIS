@@ -213,6 +213,24 @@ bool skin_init(SDL_Renderer *r, const char *font_path, Fonts *out) {
            out->small && out->small_bold && out->ui;
 }
 
+/* the desktop's fonts that are Noto Sans stand-ins, not to be closed twice */
+static bool g_desktop_own[6];
+
+void skin_init_desktop(const char *mono, const char *mono_bold, const char *icons, Fonts *out) {
+    TTF_Font **slot[6] = {&out->mono, &out->mono_bold, &out->mono_small, &out->mono_small_bold,
+                          &out->icon, &out->icon_big};
+    const char *path[6] = {mono, mono_bold, mono, mono_bold, icons, icons};
+    const int size[6] = {16, 16, 14, 14, 15, 20};
+    TTF_Font *stand_in[6] = {out->body, out->bold, out->ui, out->small_bold, out->body, out->heading};
+    for (int i = 0; i < 6; i++) {
+        /* Terminus is drawn from its own pixel grid: no hinting to blur it */
+        TTF_Font *f = path[i] ? TTF_OpenFont(path[i], size[i]) : NULL;
+        if (f) TTF_SetFontHinting(f, i < 4 ? TTF_HINTING_MONO : TTF_HINTING_LIGHT);
+        g_desktop_own[i] = f != NULL;
+        *slot[i] = f ? f : stand_in[i];
+    }
+}
+
 void skin_shutdown(Fonts *f) {
     for (int i = 0; i < TEXT_BUCKETS; i++) {
         while (g_buckets[i]) {
@@ -221,6 +239,13 @@ void skin_shutdown(Fonts *f) {
             SDL_DestroyTexture(e->tex);
             free(e);
         }
+    }
+    TTF_Font **desk[6] = {&f->mono, &f->mono_bold, &f->mono_small, &f->mono_small_bold,
+                          &f->icon, &f->icon_big};
+    for (int i = 0; i < 6; i++) {
+        if (g_desktop_own[i] && *desk[i]) TTF_CloseFont(*desk[i]);
+        *desk[i] = NULL;
+        g_desktop_own[i] = false;
     }
     TTF_Font **all[] = {&f->title, &f->button, &f->heading, &f->big, &f->body, &f->bold,
                         &f->small, &f->small_bold, &f->ui};
@@ -463,6 +488,12 @@ void skin_input(UIRect r, bool focused, bool hover, bool invalid) {
 }
 
 void skin_button_tone(UIRect r, TTF_Font *f, const char *label, WidgetState st, bool over_scene, Tone label_tone) {
+    Tone tone = skin_button_chrome(r, st, over_scene);
+    if (label_tone != TONE_COUNT && tone != TONE_ON_ACCENT) tone = label_tone;
+    label_in(r, f, label, tone, st.disabled ? 0.45f : 1.0f);
+}
+
+Tone skin_button_chrome(UIRect r, WidgetState st, bool over_scene) {
     const Theme *t = skin_theme();
     float a = over_scene ? 0.88f : 1.0f;
     Tone tone = TONE_TEXT;
@@ -511,11 +542,14 @@ void skin_button_tone(UIRect r, TTF_Font *f, const char *label, WidgetState st, 
         rect(r.x, r.y + r.h - 3, r.w, 3, st.active ? t->accent : st.hover ? t->accent_dim : t->bg_alt, 1);
         break;
     }
-    if (label_tone != TONE_COUNT && tone != TONE_ON_ACCENT) tone = label_tone;
-    label_in(r, f, label, tone, st.disabled ? 0.45f : 1.0f);
+    return tone;
 }
 
 void skin_tab(UIRect r, TTF_Font *f, const char *label, WidgetState st) {
+    label_in(r, f, label, skin_tab_chrome(r, st), 1.0f);
+}
+
+Tone skin_tab_chrome(UIRect r, WidgetState st) {
     const Theme *t = skin_theme();
     Tone tone = st.active ? TONE_TEXT : TONE_MUTED;
     switch (t->style) {
@@ -561,7 +595,7 @@ void skin_tab(UIRect r, TTF_Font *f, const char *label, WidgetState st) {
         if (st.hover) tone = TONE_TEXT;
         break;
     }
-    label_in(r, f, label, tone, 1.0f);
+    return tone;
 }
 
 void skin_row_hover(UIRect r) {
@@ -594,4 +628,289 @@ void skin_swatches(UIRect r, const Theme *th) {
     float w = r.w / 5.0f;
     for (int i = 0; i < 5; i++) rect(r.x + w * (float)i, r.y, w + 0.5f, r.h, cols[i], 1);
     outline(r, 1, th->border, 1);
+}
+
+/* ---- SYN-OS's desktop ---- */
+
+Tone skin_module(UIRect r, WidgetState st, int level) {
+    const Theme *t = skin_theme();
+    /* waybar's .critical blinks in steps; .warning is the warning colour */
+    bool blink_on = level >= 2 && (SDL_GetTicks() / 500) % 2 == 0;
+    Tone tone = level == 1 ? TONE_WARN : level >= 2 ? TONE_BAD : TONE_TEXT;
+    switch (t->style) {
+    case STYLE_FLATLINE:
+        /* text on the bar, nothing else */
+        if (st.hover || st.active) tone = level ? tone : TONE_ACCENT;
+        break;
+    case STYLE_HALO:
+        outline(r, 1, level >= 2 && blink_on ? t->urgent : st.hover || st.active ? t->accent : t->accent_dim, 1);
+        if (st.active) glow(r, t->accent, 0.6f);
+        if (!level && (st.hover || st.active)) tone = TONE_ACCENT;
+        break;
+    case STYLE_SLAB:
+        rect(r.x, r.y, r.w, r.h, st.hover ? t->panel_hover : t->panel, 1);
+        outline(r, 2, level >= 2 && blink_on ? t->urgent : st.active ? t->accent : t->bg_alt, 1);
+        break;
+    case STYLE_BEVEL:
+        gradient(r, st.hover ? t->panel : t->panel_hover, st.hover ? t->panel_hover : t->panel, 1);
+        outline(r, 1, st.active ? t->accent : t->bg_alt, 1);
+        rect(r.x + 1, r.y + 1, r.w - 2, 1, (Rgb){0xff, 0xff, 0xff}, 0.10f);
+        break;
+    case STYLE_WIN95:
+        rect(r.x, r.y, r.w, r.h, t->panel, 1);
+        win95_bevel(r, true);
+        break;
+    case STYLE_MATRIX:
+    case STYLE_VANILLA:
+    default:
+        rect(r.x, r.y, r.w, r.h, st.hover ? t->panel_hover : t->panel, 1);
+        rect(r.x, r.y, 1, r.h, t->bg_alt, 1);
+        if (st.active) rect(r.x, r.y + r.h - 3, r.w, 3, t->accent, 1);
+        break;
+    }
+    /* .critical fills with the urgent colour as it blinks, but for the
+     * families that only outline it */
+    if (level >= 2 && blink_on && t->style != STYLE_HALO && t->style != STYLE_SLAB &&
+        t->style != STYLE_FLATLINE) {
+        rect(r.x, r.y, r.w, r.h, t->urgent, 1);
+        tone = TONE_ON_ACCENT;
+    }
+    return tone;
+}
+
+void skin_well(UIRect r) {
+    const Theme *t = skin_theme();
+    Rgb well = t->light ? mix(t->bg, t->bg_alt, 0.5) : t->bg;
+    switch (t->style) {
+    case STYLE_FLATLINE:
+        rect(r.x, r.y + r.h - 1, r.w, 1, t->border, 0.6f);
+        break;
+    case STYLE_HALO:
+        rect(r.x, r.y, r.w, r.h, t->bg, 0.7f);
+        outline(r, 1, t->accent_dim, 0.8f);
+        break;
+    case STYLE_SLAB:
+        rect(r.x, r.y, r.w, r.h, well, 1);
+        outline(r, 2, t->bg_alt, 1);
+        break;
+    case STYLE_WIN95:
+        rect(r.x, r.y, r.w, r.h, (Rgb){0xff, 0xff, 0xff}, 1);
+        win95_bevel(r, true);
+        break;
+    case STYLE_BEVEL:
+    case STYLE_MATRIX:
+    case STYLE_VANILLA:
+    default:
+        /* dark along the top and left, lit along the bottom and right */
+        rect(r.x, r.y, r.w, r.h, well, 0.85f);
+        rect(r.x, r.y, r.w, 1, (Rgb){0, 0, 0}, 0.5f);
+        rect(r.x, r.y, 1, r.h, (Rgb){0, 0, 0}, 0.5f);
+        rect(r.x, r.y + r.h - 1, r.w, 1, t->panel_hover, 1);
+        rect(r.x + r.w - 1, r.y, 1, r.h, t->panel_hover, 1);
+        break;
+    }
+}
+
+float skin_keycap_width(TTF_Font *f, const char *key) {
+    return fmaxf(skin_text_width(f, key) + 10, skin_text_height(f) + 2);
+}
+
+void skin_keycap(UIRect r, TTF_Font *f, const char *key) {
+    const Theme *t = skin_theme();
+    Rgb ink;
+    switch (t->style) {
+    case STYLE_FLATLINE:
+        outline(r, 1, t->accent_dim, 1);
+        ink = g_tones[TONE_ACCENT];
+        break;
+    case STYLE_HALO:
+        outline(r, 1, t->accent, 1);
+        ink = g_tones[TONE_ACCENT];
+        break;
+    case STYLE_WIN95:
+        rect(r.x, r.y, r.w, r.h, t->panel, 1);
+        win95_bevel(r, false);
+        ink = t->text;
+        break;
+    default: {
+        /* SYN-TREK's key: a pale face, its front edge darker */
+        Rgb face = t->light ? mix(t->text, t->bg, 0.18) : mix(t->text, t->bg, 0.22);
+        rect(r.x, r.y, r.w, r.h - 3, face, 1);
+        rect(r.x, r.y + r.h - 3, r.w, 3, mix(face, (Rgb){0, 0, 0}, 0.45), 1);
+        ink = t->light ? t->bg : t->bg;
+        break;
+    }
+    }
+    float h = skin_text_height(f);
+    float lift = t->style == STYLE_FLATLINE || t->style == STYLE_HALO || t->style == STYLE_WIN95 ? 0 : 1.5f;
+    skin_text_rgb(f, key, r.x + r.w * 0.5f, r.y + (r.h - h) * 0.5f - lift, ink.r, ink.g, ink.b, ALIGN_CENTER);
+}
+
+void skin_note(UIRect r, bool urgent) {
+    const Theme *t = skin_theme();
+    rect(r.x, r.y, r.w, r.h, t->panel, 0.97f);
+    outline(r, 3, urgent ? t->urgent : t->accent, 1);
+}
+
+void skin_line(float x0, float y0, float x1, float y1, float w, Rgb c, float alpha) {
+    float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+    if (len <= 0) return;
+    float nx = -dy / len * w * 0.5f, ny = dx / len * w * 0.5f;
+    SDL_Color col = skin_color(c, alpha);
+    SDL_Vertex v[4] = {{{x0 + nx, y0 + ny}, col, {0, 0}}, {{x1 + nx, y1 + ny}, col, {0, 0}},
+                       {{x1 - nx, y1 - ny}, col, {0, 0}}, {{x0 - nx, y0 - ny}, col, {0, 0}}};
+    int idx[6] = {0, 1, 2, 0, 2, 3};
+    SDL_RenderGeometry(R, NULL, v, 4, idx, 6);
+}
+
+/* a filled polygon (convex), as a fan */
+static void polygon(const float *xy, int n, Rgb c, float alpha) {
+    SDL_Vertex v[16];
+    int idx[42], k = 0;
+    SDL_Color col = skin_color(c, alpha);
+    for (int i = 0; i < n && i < 16; i++) v[i] = (SDL_Vertex){{xy[2 * i], xy[2 * i + 1]}, col, {0, 0}};
+    for (int i = 1; i + 1 < n && i < 15; i++) {
+        idx[k++] = 0;
+        idx[k++] = i;
+        idx[k++] = i + 1;
+    }
+    SDL_RenderGeometry(R, NULL, v, n, idx, k);
+}
+
+static void disc(float cx, float cy, float rad, Rgb c, float a, float from, float to) {
+    float xy[32];
+    int n = 0;
+    if (to - from < 6.28f) {
+        xy[n++] = cx;
+        xy[n++] = cy;
+    }
+    int steps = 14;
+    for (int i = 0; i <= steps && n < 32; i++) {
+        float th = from + (to - from) * (float)i / (float)steps;
+        xy[n++] = cx + cosf(th) * rad;
+        xy[n++] = cy + sinf(th) * rad;
+    }
+    polygon(xy, n / 2, c, a);
+}
+
+static unsigned utf8_first(const char *s) {
+    const unsigned char *u = (const unsigned char *)s;
+    if (u[0] < 0x80) return u[0];
+    if ((u[0] & 0xe0) == 0xc0) return ((u[0] & 0x1fu) << 6) | (u[1] & 0x3fu);
+    if ((u[0] & 0xf0) == 0xe0) return ((u[0] & 0x0fu) << 12) | ((u[1] & 0x3fu) << 6) | (u[2] & 0x3fu);
+    return ((u[0] & 0x07u) << 18) | ((u[1] & 0x3fu) << 12) | ((u[2] & 0x3fu) << 6) | (u[3] & 0x3fu);
+}
+
+void skin_glyph(float cx, float cy, float size, TTF_Font *icons) {
+    const Theme *t = skin_theme();
+    Rgb c = g_tones[TONE_ACCENT];
+    unsigned cp = t->glyph[0] ? utf8_first(t->glyph) : 0x25a0;
+    float h = size * 0.5f;
+    const float pi = 3.14159265f;
+    switch (cp) {
+    case 0x25aa: /* ▪ */
+        rect(cx - h * 0.55f, cy - h * 0.55f, h * 1.1f, h * 1.1f, c, 1);
+        return;
+    case 0x25c8: { /* ◈ a diamond in a diamond */
+        float o[8] = {cx, cy - h, cx + h, cy, cx, cy + h, cx - h, cy};
+        float in[8] = {cx, cy - h * 0.62f, cx + h * 0.62f, cy, cx, cy + h * 0.62f, cx - h * 0.62f, cy};
+        float i2[8] = {cx, cy - h * 0.36f, cx + h * 0.36f, cy, cx, cy + h * 0.36f, cx - h * 0.36f, cy};
+        polygon(o, 4, c, 1);
+        polygon(in, 4, t->bg, 1);
+        polygon(i2, 4, c, 1);
+        return;
+    }
+    case 0x25cf: /* ● */
+        disc(cx, cy, h * 0.85f, c, 1, 0, 2 * pi);
+        return;
+    case 0x25d0: /* ◐ */
+        disc(cx, cy, h * 0.85f, c, 1, 0, 2 * pi);
+        disc(cx, cy, h * 0.62f, t->bg, 1, 0, 2 * pi);
+        disc(cx, cy, h * 0.62f, c, 1, pi * 0.5f, pi * 1.5f);
+        return;
+    case 0x2b22: { /* ⬢ */
+        float xy[12];
+        for (int i = 0; i < 6; i++) {
+            float th = pi / 6.0f + (float)i * pi / 3.0f - pi / 2.0f;
+            xy[2 * i] = cx + cosf(th + pi / 6.0f) * h * 0.95f;
+            xy[2 * i + 1] = cy + sinf(th + pi / 6.0f) * h * 0.95f;
+        }
+        polygon(xy, 6, c, 1);
+        return;
+    }
+    case 0x2726: { /* ✦ */
+        float k = h * 0.22f;
+        float xy[16] = {cx, cy - h, cx + k, cy - k, cx + h, cy, cx + k, cy + k,
+                        cx, cy + h, cx - k, cy + k, cx - h, cy, cx - k, cy - k};
+        /* a concave star: four triangles round the middle */
+        for (int i = 0; i < 4; i++) {
+            float tri[6] = {xy[(4 * i + 0) % 16], xy[(4 * i + 1) % 16], xy[(4 * i + 2) % 16],
+                            xy[(4 * i + 3) % 16], cx, cy};
+            float tri2[6] = {xy[(4 * i + 2) % 16], xy[(4 * i + 3) % 16], xy[(4 * i + 4) % 16],
+                             xy[(4 * i + 5) % 16], cx, cy};
+            polygon(tri, 3, c, 1);
+            polygon(tri2, 3, c, 1);
+        }
+        return;
+    }
+    case 0x25a0: /* ■ */
+        rect(cx - h * 0.8f, cy - h * 0.8f, h * 1.6f, h * 1.6f, c, 1);
+        return;
+    default:
+        break;
+    }
+    /* Font Awesome's: its private ones, and the bolt and snowflake */
+    char buf[8];
+    unsigned fa = cp == 0x26a1 ? 0xf0e7 : cp == 0x2744 ? 0xf2dc : cp;
+    if (icons && fa >= 0xe000 && fa <= 0xf8ff) {
+        buf[0] = (char)(0xe0 | (fa >> 12));
+        buf[1] = (char)(0x80 | ((fa >> 6) & 0x3f));
+        buf[2] = (char)(0x80 | (fa & 0x3f));
+        buf[3] = 0;
+        skin_text_rgb(icons, buf, cx, cy - skin_text_height(icons) * 0.5f, c.r, c.g, c.b, ALIGN_CENTER);
+        return;
+    }
+    rect(cx - h * 0.8f, cy - h * 0.8f, h * 1.6f, h * 1.6f, c, 1);
+}
+
+Rgb skin_titlebar(UIRect r) {
+    const Theme *t = skin_theme();
+    switch (t->style) {
+    case STYLE_FLATLINE:
+        rect(r.x, r.y + r.h - 1, r.w, 1, t->accent, 1);
+        return g_tones[TONE_ACCENT];
+    case STYLE_HALO:
+        rect(r.x, r.y, r.w, r.h, t->bg, 1);
+        rect(r.x, r.y + r.h - 1, r.w, 1, t->accent, 1);
+        return g_tones[TONE_ACCENT];
+    case STYLE_SLAB:
+        rect(r.x, r.y, r.w, r.h, t->accent, 1);
+        return g_tones[TONE_ON_ACCENT];
+    case STYLE_BEVEL:
+        gradient(r, t->accent, t->accent_dim, 1);
+        rect(r.x, r.y, r.w, 1, (Rgb){0xff, 0xff, 0xff}, 0.15f);
+        return g_tones[TONE_ON_ACCENT];
+    case STYLE_WIN95: {
+        /* labwc's: navy to sky, left to right, a white label */
+        Rgb from = {0x0a, 0x24, 0x6a}, to = {0xa6, 0xca, 0xf0};
+        int strips = (int)(r.w / 6.0f);
+        if (strips < 2) strips = 2;
+        float sw = r.w / (float)strips;
+        for (int i = 0; i < strips; i++)
+            rect(r.x + sw * (float)i, r.y, sw + 0.5f, r.h, mix(from, to, (double)i / (strips - 1)), 1);
+        return (Rgb){0xff, 0xff, 0xff};
+    }
+    case STYLE_MATRIX:
+        rect(r.x, r.y, r.w, r.h, t->bg, 1);
+        return g_tones[TONE_ACCENT];
+    case STYLE_VANILLA:
+    default:
+        rect(r.x, r.y, r.w, r.h, t->bg_alt, 1);
+        return g_tones[TONE_ACCENT];
+    }
+}
+
+Rgb skin_tone(Tone t) {
+    skin_theme();
+    return g_tones[t];
 }

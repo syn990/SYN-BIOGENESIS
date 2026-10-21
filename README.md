@@ -64,7 +64,7 @@ Parents and their children never harm each other. Organisms flash a colour
 for a moment when something happens to them (bitten, infected, shielded). A
 new segment is green 30% of the time, cyan 20%, and red, blue, white, gray
 or yellow 10% each. Every number here is a parameter in **World >
-Parameters**.
+Parameters** (PARAMETERS in SYN-OS).
 
 Yellow is the subtle one. More segments of it don't make an organism any
 richer: the energy needed to reproduce stays the same, and it is divided
@@ -487,7 +487,7 @@ switch to the other simulation:
 
 - View > Color Mod 2.01 in Biogenesis' window, View > Biogenesis 0.9 in
   Color Mod's;
-- Game, or SIMULATION in OPTIONS, in SYN-OS.
+- the commands (`/`), or SIMULATION in OPTIONS, in SYN-OS.
 
 Switching asks whether to save the world first, as quitting does. The
 program opens with the simulation used last
@@ -642,14 +642,15 @@ in `~/.config/syn-biogenesis/colour-params.cfg`, with Color Mod's
 defaults (its README asks for those).
 
 It has the [SYN-OS interface](#the-syn-edition) too, as Biogenesis 0.9
-has it, with its own menus in the top bar, methane among the figures and
-charts, its clades as the statistics' lines, and the looks drawn for its
-46 colours and branching bodies.
+has it, with its own commands (Backup, CH4 up and down), methane among the
+bar's figures and the charts, its clades as the statistics' lines, its
+seven tabs of parameters on the PARAMETERS screen, and the looks drawn for
+its 46 colours and branching bodies.
 
 | | | |
 |---|---|---|
 | ![Color Mod, Biological](docs/screenshots/syn-colour-biological.png) | ![Color Mod, Digital](docs/screenshots/syn-colour-digital.png) | ![Color Mod's statistics](docs/screenshots/syn-colour-stats.png) |
-| Color Mod in SYN-OS, Biological | Digital, segments out of action dotted | Its statistics: the epochs |
+| Color Mod in SYN-OS, Biological, an organism's card (SYN-OS-FLATLINE-CYAN) | Digital, segments out of action dotted | Its statistics: the epochs (SYN-OS-HALO-VIOLET) |
 
 Differences from the Java Color Mod are those of 0.9 here (no network,
 English only, no version check), plus: the window opens at 1100 x 760
@@ -669,7 +670,7 @@ world is shown and handled differs.
 | ![Main menu](docs/screenshots/syn-menu.png) | ![Options](docs/screenshots/syn-options.png) | ![Genetic laboratory in a light theme](docs/screenshots/syn-lab-light.png) |
 | The main menu over the world | OPTIONS (theme SYN-OS-BEVEL-TEAL) | The laboratory in SYN-OS-VANILLA-LIGHT-CREAM |
 | ![Biological](docs/screenshots/syn-biological.png) | ![Galaxy](docs/screenshots/syn-galaxy.png) | ![Digital (SYN-OS)](docs/screenshots/syn-digital.png) |
-| Biological | Galaxy | Digital (SYN-OS) |
+| Biological, an organism's card (SYN-OS-RED) | Galaxy, the commands (SYN-OS-HALO-CYAN) | Digital, the console (SYN-OS-MATRIX) |
 
 ### SYN-OS or the Heritage edition
 
@@ -682,17 +683,14 @@ windows) switches between two interfaces while the world runs:
   loaded, its screen is pixel for pixel that of the window built without
   any of the SYN edition, for both simulations (checked for the world, a
   selection, statistics, the laboratory and the parameters).
-- **SYN-OS** opens on a main menu over the living world:
-  CONTINUE, NEW WORLD, LOAD WORLD, OPTIONS, QUIT. In the world, the world
-  fills the window. A top bar holds the menus (Game, World, View, Help),
-  the tools, and the world's figures (time, population, O2, CO2, FPS,
-  zoom), which go on a second row when the window is too narrow for one.
-  A selected organism's figures and actions are on a panel at the bottom
-  left; its Family button finds its species in the
-  [family tree](#the-family-tree). Status messages show at the bottom for
-  a few seconds. Esc lets go of the selection, or with nothing selected
-  opens the main menu. Every bar, panel, button, tab, field, popup menu
-  and dialog is drawn in a SYN-OS theme.
+- **SYN-OS** opens on a main menu over the living world: CONTINUE, NEW
+  WORLD, LOAD WORLD, ARENA, LIBRARY, TELESCOPE, OPTIONS, QUIT. In the
+  world, the world fills the window and has no menu bar, toolbar or
+  dialog boxes: everything is a screen under one bar, or a command (see
+  [The shell](#the-shell-the-bar-the-commands-and-the-console)). Esc lets
+  go of the selection, or with nothing selected opens the main menu.
+  Every bar, panel, button, tab, field and menu is drawn in a SYN-OS
+  theme.
 
 The themes are SYN-OS's 63 palettes (`assets/themes/`, the files SYN-OS
 uses for labwc, waybar, foot and mako), in its five families: VANILLA,
@@ -704,6 +702,70 @@ Until one is picked, the theme is the one SYN-OS has on
 `~/.config/syn-biogenesis/synos.cfg`. `SYN_BIOGENESIS_INTERFACE=heritage`
 (or `synos`) and `SYN_BIOGENESIS_THEME=SYN-OS-HALO-CYAN` set them for one
 run.
+
+### The shell: the bar, the commands and the console
+
+In SYN-OS, the world and its screens sit under a shell made of SYN-OS's
+own desktop, as its waybar, mako, wmenu, foot, labwc and TUIs draw it
+(`src/syn/shell.c`). What the machine writes (the console, the menus,
+the notifications, the hints, the figures) is in SYN Terminal, which is
+Terminus as SYN-OS uses it everywhere. The icons are Font Awesome's, as
+waybar's are.
+
+- **The bar**, waybar's. The theme's glyph and BIOGENESIS open the command
+  list. Then come the screens as tabs: WORLD, STATISTICS, LABORATORY,
+  LIBRARY, ARENA, TELESCOPE (0.9's) and PARAMETERS. The world's figures sit
+  in modules at the right: running or PAUSED (a click toggles it), the
+  speed (scrolled or dragged), time, population, O2, CO2 (and CH4 in
+  Color Mod), frames a second and zoom (a click fits the world). Then
+  MENU. As in waybar, a module turns to the warning colour (paused;
+  frames a second well short of the speed asked for) or blinks critical
+  (nothing alive). When the window narrows, the tabs keep only their
+  icons but the one shown, then figures go from the left.
+- **The commands** (`/`, or the glyph): wmenu's and fuzzel's list of
+  everything the menus and toolbar did, and more, under headings like
+  SYN-OS's root menu: WORLD, ATMOSPHERE, EVERYONE, NEW LIFE, THE ORGANISM
+  SELECTED, VIEW, SCREENS, SYSTEM. Typing filters it; up and down pick,
+  Enter runs, Esc closes. Each command shows its key and its name in the
+  console.
+- **The console** (`` ` ``): a drop-down foot with syn-shell's command line.
+  Every command runs by its name (`pause`, `co2+`, `killall`, `keep`), and
+  it has its own: `info`, `params`, `get` and `set NAME VALUE` (checked as
+  the parameters dialog checks them), `speed N|max`, `run N` frames as fast
+  as they go, `co2 + N`, `find ID` (selects an organism and flies to it),
+  `goto X Y [ZOOM]`, `zoom`, `look`, `theme`, and the random generator's:
+  `seed` (the seed a world made here came from), `generator [STATE]`,
+  `jump N`, and in 0.9 the dice telescope's algebra (`telescope seed S`,
+  `telescope jump STATE N`, `telescope gene LENGTH [ANGLE]`). Tab
+  completes, up and down go through what was typed, Ctrl+L clears, and
+  `help` lists it all. What the window says goes in it too.
+- **Notifications**, mako's: at the top right, in the panel colour inside
+  a 3px accent border, for five seconds.
+- **The right-click menu**, labwc's: titled with what was clicked
+  (ORGANISM 6, CORPSE 12, THE WORLD AT 280, 459), with icons and keys.
+- **The organism card**, SYN-TREK's target card: the selected organism in
+  a labwc title bar with its state and species, its body, its figures in
+  wells, two segmented bars (its energy towards a child, how much of its
+  life has gone), and its actions.
+- **The hints**, the status line of SYN-OS's TUIs: keys along the bottom,
+  and the world's file, size and seed at the right.
+
+The screens: **PARAMETERS** is each simulation's own parameters, a card
+each with what it does, its default (a click puts it back), whether it
+waits for the next world, and a stripe when it isn't the default; the
+colours of the genes are a table with each colour's share of a random
+gene. A value is taken as it is entered and saved, parsed and checked as
+the original's dialog does on OK; one it refuses stays red. The
+**LABORATORY** fills the screen under the bar. Files are opened and saved
+in syn-crypter's three columns (the folder above, this one with sizes and
+dates, and a preview that draws a `.bgg`'s being), with the path as
+buttons, HOME and `/`, and keys. Questions (save before quitting, replace
+a file) are SYN-DEBT's dialogs.
+
+| | | |
+|---|---|---|
+| ![PARAMETERS](docs/screenshots/syn-params.png) | ![PARAMETERS, the genes](docs/screenshots/syn-params-genes.png) | ![Opening a being](docs/screenshots/syn-files.png) |
+| PARAMETERS (SYN-OS-SLAB-COBALT) | The genes: each colour's share of a random gene | A being into the world: its body in the preview (SYN-OS-BEVEL-TEAL) |
 
 ### Moving around
 
@@ -719,6 +781,13 @@ In SYN-OS (the Heritage edition keeps the original's scrollbars and keys):
 | Home | fit the world |
 | M | minimap on or off |
 | L | next look |
+| P or Space | pause, go on |
+| . | one frame on, while paused |
+| / | the commands |
+| `` ` `` | the console |
+| F11 | fullscreen |
+| T, F, G, Del | the selected organism: track, feed, its genes, kill |
+| Ctrl+C, Ctrl+V | copy the selected organism, paste it at the cursor |
 | Esc | let go of the selection; the main menu |
 
 Zoom runs from 3% to 4,800%. The minimap sits at the bottom right while
@@ -727,7 +796,7 @@ Dragging lets go of a tracked organism.
 
 ### Statistics
 
-In SYN-OS, **World > Statistics** opens a statistics screen over the
+In SYN-OS, **STATISTICS** in the bar opens a statistics screen over the
 running world (the Heritage edition keeps the original's window). It has
 five tabs, switched with 1 to 5. The wheel, Page Up and Down, Home, End
 and the bar at the right scroll it (the family tree moves and zooms
@@ -736,9 +805,9 @@ instead).
 | | | |
 |---|---|---|
 | ![Charts](docs/screenshots/syn-stats-charts.png) | ![Epochs](docs/screenshots/syn-stats-epochs.png) | ![Timeline](docs/screenshots/syn-stats-timeline.png) |
-| Charts, hovered together | Epochs, their best species and champions | The lines' river, as shares |
+| Charts, hovered together | Epochs, their best species and champions | The lines' river, and what happened |
 | ![Family tree](docs/screenshots/syn-stats-family.png) | ![Family tree, the best of each epoch](docs/screenshots/syn-stats-family-best.png) | ![Color Mod's family tree](docs/screenshots/syn-colour-family.png) |
-| The family tree: the species living now, TAU-10 followed | The best of each epoch: GEXIDON-6, of a family that came from ORIOKIX | Color Mod's, from its clades |
+| The family tree: the species living now, DULTINA-3 followed | The best of each epoch, from SLAURIS-1 and TREKANE-1 on | Color Mod's, from its clades |
 
 - **OVERVIEW:** the world now: time, living, corpses, lines living, the
   gases, the original's averages, mass extinctions and the most ever
@@ -885,7 +954,7 @@ format, with an `.about` file beside it saying where it came from and when.
 The folders are the categories, nested as deep as wanted; a `.bgg` dropped
 into one from outside the program is in the library too.
 
-- **In:** Keep on a selected organism (its panel and its right-click menu),
+- **In:** Keep on a selected organism (its card and its right-click menu),
   Keep in the laboratory, "Keep in the library" on any being in the arena,
   the statistics and the family tree, and IMPORT .BGG for files from
   anywhere. A first library has Saved, Imported, Arena and Bin.
@@ -930,7 +999,7 @@ the record.
 
 ### Looks
 
-Chosen in OPTIONS, the View menu or with L, and remembered in
+Chosen in OPTIONS, the commands (`/`) or with L, and remembered in
 `~/.config/syn-biogenesis/syn.cfg` (`SYN_BIOGENESIS_LOOK=galaxy` picks
 one for a single run). Every look keeps what the colours mean, in its
 own palette.
@@ -992,9 +1061,13 @@ src/syn/        the SYN edition's world view: navigation, the looks, batched dra
                 the arena (arena*.c), its rounds' worlds (round.c) and record
                 (record.c); the dice telescope (telescope.c) and its
                 screen (telescope_screen.c); the being library (library.c) and
-                its screen (library_screen.c)
+                its screen (library_screen.c); the shell over the world and its
+                screens: bar, commands, console, notifications, menus, card,
+                dialogs (shell.c); the parameters screen (params_screen.c)
 src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
-                (SYN-DEBT's, drawn with SDL_Renderer), the main menu and options
+                (SYN-DEBT's, drawn with SDL_Renderer, with waybar's modules,
+                labwc's title bars and mako's notifications), the main menu and
+                options
 src/headless.c, src/main.c   Biogenesis 0.9 without a window, its arguments
 src/launcher.c, src/host.h   the program: runs Biogenesis 0.9 or Color Mod, switches
 src/compat.h, src/win/       Windows: the POSIX calls it lacks, the icon and manifest
@@ -1005,6 +1078,7 @@ tools/jvmlibm/  translates HotSpot's sin/cos/pow into jvm_libm_x86_64.S
 tools/drift/    the drift study and its charts (docs/drift/)
 tools/being/    the being search, the battles and their charts (docs/being/)
 tools/win/      makes the Windows icon from the original's
+tools/fonts/    makes SYN Terminal (Terminus, cut down) and copies Font Awesome
 ```
 
 ```sh
@@ -1108,6 +1182,12 @@ behaviour are the original's:
   only.
 - **fdlibm** (`src/fdlibm/`) is Sun Microsystems' freely distributable libm.
 - **Noto Sans** is under the SIL Open Font License (`assets/fonts/OFL.txt`).
+- **SYN Terminal** is Terminus (copyright (c) 2010 Dimitar Toshkov Zhekov),
+  as Terminus (TTF) (copyright (c) 2011-2021 Tilman Blumenbach) and Nerd
+  Fonts' Terminess build it, cut down and renamed: SIL Open Font License
+  (`assets/fonts/OFL-SYNTerminal.txt`).
+- **Font Awesome Free** 7 (Fonticons, Inc.), its solid icons font
+  unchanged: SIL Open Font License (`assets/fonts/LICENSE-FontAwesome.txt`).
 
 ## Licence
 

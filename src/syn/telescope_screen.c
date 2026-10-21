@@ -35,6 +35,7 @@
 #include "syn/family.h"
 #include "syn/library_screen.h"
 #include "syn/palette.h"
+#include "syn/shell.h"
 #include "synos/synos.h"
 #include "ui/app.h"
 #include "ui/gfx.h"
@@ -790,17 +791,13 @@ void syn_telescope_frame(App *a, int w, int h)
         return;
     }
     skin_fill(ui_rect(0, 0, (float)w, (float)h), (Rgb){0, 0, 0}, 0.5f);
-    float pw = fminf((float)w - 48, 1500), ph = (float)h - 48;
-    UIRect panel = {((float)w - pw) / 2, 24, pw, ph};
+    float top = SHELL_BAR_H + 10;
+    float pw = fminf((float)w - 48, 1500), ph = (float)h - top - 24;
+    UIRect panel = {((float)w - pw) / 2, top, pw, ph};
     skin_panel(panel, true);
     float x = panel.x + PAD, y = panel.y + 14, right = panel.x + panel.w - PAD;
     x += skin_text(fo->big, "TELESCOPE", x, y, TONE_TEXT, ALIGN_LEFT) + 14;
     skin_text(fo->body, "Biogenesis 0.9", x, y + 9, TONE_MUTED, ALIGN_LEFT);
-    UIRect back = {right - 110, y, 110, 36};
-    if (button(back, "BACK", false, true)) {
-        synos_set_screen(SYNOS_MENU);
-        return;
-    }
     y += 50;
     float tw = right - (panel.x + PAD);
     x = panel.x + PAD;

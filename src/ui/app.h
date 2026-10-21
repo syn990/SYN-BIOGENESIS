@@ -147,6 +147,39 @@ void lab_load_code(LabWindow *l, const GeneticCode *gc);
 
 void params_open(App *a);
 void params_draw(App *a);
+#ifdef BIO_SYN_EDITION
+/* The parameters dialog's fields as SYN-OS's PARAMETERS screen shows them
+ * (syn/params_screen.h): the dialog's own text, checked and applied as its
+ * OK checks and applies it, so a value means what it means there. */
+typedef struct {
+    int tab;
+    const char *label;
+    const char *unit; /* or NULL */
+    const char *help; /* what it does, in a sentence, or NULL */
+    char type;        /* 'i', 'd', or 'c': a choice of No or Yes */
+    bool next_world;  /* takes effect when a world is made */
+    bool genesis;     /* the number a new world starts with: how long it takes */
+} ParamsField;
+int params_count(void);
+int params_tab_count(void);
+const char *params_tab(int t);
+/* a tab of colours: each one's probability, its cost the field after it */
+bool params_tab_genes(int t);
+const char *params_tab_note(int t);
+void params_info(int i, ParamsField *out);
+/* its text, edited in place, of params_text_cap() bytes */
+char *params_text(App *a, int i);
+size_t params_text_cap(void);
+/* the text reads, and passes the dialog's check */
+bool params_valid(App *a, int i);
+/* the text is not the value in use, or not the default */
+bool params_changed(App *a, int i);
+bool params_is_default(App *a, int i);
+void params_default_text(int i, char *out, size_t n);
+void params_reload(App *a);   /* the texts from the values in use */
+void params_defaults(App *a); /* the texts of the default values */
+void params_commit(App *a);   /* applied and saved, as OK */
+#endif
 
 void stats_open(App *a);
 void stats_draw(App *a);

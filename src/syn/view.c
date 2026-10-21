@@ -28,6 +28,7 @@
 #include "syn/batch.h"
 #include "syn/looks.h"
 #include "syn/palette.h"
+#include "synos/synos.h"
 #include "ui/gfx.h"
 #include "ui/ui.h"
 
@@ -369,9 +370,21 @@ void syn_view_fit(WorldView *v, const World *w)
     S.vel_x = S.vel_y = 0;
 }
 
+static bool g_hud_off;
+static int g_hud_bottom;
+
+void syn_view_hud(bool minimap, int bottom)
+{
+    g_hud_off = !minimap;
+    g_hud_bottom = bottom;
+}
+
+/* its title bar, over it */
+#define MINIMAP_TITLE 22
+
 static bool minimap_rect(const WorldView *v, const World *w, SDL_Rect *r)
 {
-    if (!S.minimap || w->width <= 0 || w->height <= 0)
+    if (!S.minimap || g_hud_off || w->width <= 0 || w->height <= 0)
         return false;
     /* only when part of the world is out of view */
     if (v->view.w / v->zoom >= w->width && v->view.h / v->zoom >= w->height)
@@ -382,9 +395,10 @@ static bool minimap_rect(const WorldView *v, const World *w, SDL_Rect *r)
         mw = 30;
     if (mh < 30)
         mh = 30;
-    if (mw + 20 > v->view.w || mh + 20 > v->view.h)
+    if (mw + 20 > v->view.w || mh + 20 + g_hud_bottom + MINIMAP_TITLE > v->view.h)
         return false;
-    *r = (SDL_Rect){v->view.x + v->view.w - mw - 10, v->view.y + v->view.h - mh - 10, mw, mh};
+    *r = (SDL_Rect){v->view.x + v->view.w - mw - 16, v->view.y + v->view.h - mh - 12 - g_hud_bottom,
+                    mw, mh};
     return true;
 }
 
@@ -707,8 +721,19 @@ static void draw_minimap(const WorldView *v, const World *w)
     if (!minimap_rect(v, w, &mm))
         return;
     SDL_Renderer *R = S.R;
-    gfx_fill((SDL_Rect){mm.x - 1, mm.y - 1, mm.w + 2, mm.h + 2}, (Col){0, 0, 0, 190});
-    gfx_frame((SDL_Rect){mm.x - 1, mm.y - 1, mm.w + 2, mm.h + 2}, C_BORDER);
+    /* a window of its own, as labwc draws one: its title bar, then the map */
+    UIRect frame = {(float)mm.x - 4, (float)mm.y - 4 - MINIMAP_TITLE, (float)mm.w + 8,
+                    (float)mm.h + 8 + MINIMAP_TITLE};
+    skin_panel(frame, true);
+    UIRect tb = {frame.x + 1, frame.y + 1, frame.w - 2, MINIMAP_TITLE - 1};
+    Rgb tc = skin_titlebar(tb);
+    const Fonts *fo = synos_fonts();
+    char size[48];
+    snprintf(size, sizeof size, "%d x %d", w->width, w->height);
+    float ty = tb.y + (tb.h - skin_text_height(fo->mono_small_bold)) * 0.5f;
+    skin_text_rgb(fo->mono_small_bold, "MAP", tb.x + 8, ty, tc.r, tc.g, tc.b, ALIGN_LEFT);
+    skin_text_rgb(fo->mono_small, size, tb.x + tb.w - 8, ty, tc.r, tc.g, tc.b, ALIGN_RIGHT);
+    gfx_fill((SDL_Rect){mm.x, mm.y, mm.w, mm.h}, (Col){0, 0, 0, 225});
     static SDL_FPoint *pts[SYN_NCOL];
     static int cap[SYN_NCOL];
     int np[SYN_NCOL] = {0};

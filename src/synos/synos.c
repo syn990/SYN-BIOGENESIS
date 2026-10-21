@@ -134,6 +134,19 @@ bool synos_init(SDL_Renderer *r, SDL_Window *w, const char *title, const char *s
     for (int i = 0; i < 11; i++)
         G.heritage[i] = *k_palette[i];
     G.fonts_ok = skin_init(r, gfx_asset("fonts/NotoSans-Regular.ttf"), &G.fonts);
+    if (G.fonts_ok) {
+        /* gfx_asset's path is its own until the next call */
+        char mono[1200] = "", bold[1200] = "", icons[1200] = "";
+        const char *p;
+        if ((p = gfx_asset("fonts/SYNTerminal-Regular.ttf")))
+            snprintf(mono, sizeof mono, "%s", p);
+        if ((p = gfx_asset("fonts/SYNTerminal-Bold.ttf")))
+            snprintf(bold, sizeof bold, "%s", p);
+        if ((p = gfx_asset("fonts/fa-solid-900.otf")))
+            snprintf(icons, sizeof icons, "%s", p);
+        skin_init_desktop(mono[0] ? mono : NULL, bold[0] ? bold : NULL, icons[0] ? icons : NULL,
+                          &G.fonts);
+    }
     const char *dir = gfx_asset("themes");
     if (dir)
         theme_load_dir(dir, &G.themes);
@@ -218,28 +231,28 @@ static int speed_step(int delay)
     return best;
 }
 
-float synos_speed(float right, float y, bool draw)
+float synos_speed(float right, float cy, bool draw)
 {
     const Fonts *fo = &G.fonts;
-    const float bar_w = 84, gap = 10;
-    float tw = fmaxf(skin_text_width(fo->small, "SPEED"), skin_text_width(fo->bold, "500/s"));
+    const float bar_w = 52, gap = 8;
+    float tw = skin_text_width(fo->mono_small_bold, "500/s");
     float w = tw + gap + bar_w;
     if (!draw)
         return w;
-    float x = right - w, th = skin_text_height(fo->small) - 1 + skin_text_height(fo->bold);
+    float x = right - w;
     int step = speed_step(P.delay);
     char value[16];
     if (P.delay <= 1)
         snprintf(value, sizeof value, "MAX");
     else
         snprintf(value, sizeof value, "%d/s", (int)lround(1000.0 / P.delay));
-    skin_text(fo->small, "SPEED", x, y, TONE_MUTED, ALIGN_LEFT);
-    skin_text(fo->bold, value, x, y + skin_text_height(fo->small) - 1, TONE_TEXT, ALIGN_LEFT);
+    skin_text(fo->mono_small_bold, value, x, cy - skin_text_height(fo->mono_small_bold) * 0.5f, TONE_TEXT,
+              ALIGN_LEFT);
 
     /* the bar: slowest at the left; scrolled over, clicked or dragged */
-    UIRect bar = {x + tw + gap, y + th / 2 - 3, bar_w, 6};
-    SDL_Rect all = {(int)x, (int)y - 4, (int)w, (int)th + 8};
-    SDL_Rect grip = {(int)bar.x - 4, (int)y - 4, (int)bar_w + 8, (int)th + 8};
+    UIRect bar = {x + tw + gap, cy - 3, bar_w, 6};
+    SDL_Rect all = {(int)x - 10, (int)cy - 16, (int)w + 20, 32};
+    SDL_Rect grip = {(int)bar.x - 6, (int)cy - 16, (int)bar_w + 16, 32};
     uint32_t id = ui_id("synspeed", 0);
     int to = step;
     /* a step a notch; a touchpad's fractions add up to one */
@@ -275,9 +288,9 @@ float synos_speed(float right, float y, bool draw)
     if (ui_hover(all)) {
         char tip[200];
         if (P.delay <= 1)
-            snprintf(tip, sizeof tip, "As fast as the computer allows. Scroll or drag to slow it down");
+            snprintf(tip, sizeof tip, "Speed: as fast as the computer allows. Scroll or drag to slow it down");
         else
-            snprintf(tip, sizeof tip, "Up to %d frames a second (%d ms each). Scroll or drag to change it",
+            snprintf(tip, sizeof tip, "Speed: up to %d frames a second (%d ms each). Scroll or drag to change it",
                      (int)lround(1000.0 / P.delay), P.delay);
         ui_tooltip(tip);
     }

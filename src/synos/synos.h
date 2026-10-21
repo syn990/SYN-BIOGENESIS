@@ -41,6 +41,8 @@ typedef enum {
     SYNOS_ARENA,
     SYNOS_LIBRARY,   /* the being library (syn/library_screen.h) */
     SYNOS_TELESCOPE, /* a saved world's seed (syn/telescope_screen.h), 0.9's */
+    SYNOS_PARAMS,    /* the parameters (syn/params_screen.h) */
+    SYNOS_LAB,       /* the genetic laboratory, docked under the bar */
 } SynosScreen;
 
 typedef enum {
@@ -84,12 +86,12 @@ SynosAction synos_menu_frame(int w, int h, bool can_continue);
  * theme. Returns SYNOS_SWITCH_SIM when the other simulation is chosen. */
 SynosAction synos_options_frame(int w, int h);
 
-/* The world's speed, for the top bar: SPEED over the frames a second asked
- * for, and a bar from 1 a second to as fast as it goes, set by the wheel
- * over it or a click or drag on the bar; it is Parameters' Time per frame
- * (P.delay). Its right edge at right, its top at y; the width it takes,
- * only measured unless draw. */
-float synos_speed(float right, float y, bool draw);
+/* The world's speed, a module of the shell's bar: the frames a second
+ * asked for and a bar from 1 a second to as fast as it goes, set by the
+ * wheel over it or a click or drag on the bar; it is Parameters' Time per
+ * frame (P.delay). Its right edge at right, its middle on cy; the width it
+ * takes, only measured unless draw. */
+float synos_speed(float right, float cy, bool draw);
 
 /* SDL_Rect to the skin's rectangles */
 static inline UIRect synos_rect(SDL_Rect r)

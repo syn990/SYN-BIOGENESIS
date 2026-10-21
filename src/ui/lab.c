@@ -28,6 +28,7 @@
 #include "ui/app.h"
 #ifdef BIO_SYN_EDITION
 #include "syn/library_screen.h"
+#include "syn/shell.h"
 #include "synos/synos.h"
 #endif
 
@@ -82,6 +83,19 @@ void lab_draw(App *a)
     LabWindow *l = &a->lab;
     if (!l->win.open)
         return;
+#ifdef BIO_SYN_EDITION
+    /* SYN-OS: a screen under the bar, not a window */
+    l->win.docked = synos_active();
+    if (l->win.docked) {
+        int W, H;
+        SDL_GetRendererOutputSize(gfx_renderer(), &W, &H);
+        l->win.x = 16;
+        l->win.y = SHELL_BAR_H + 10;
+        l->win.w = W - 32;
+        l->win.h = H - SHELL_BAR_H - 26;
+    }
+#endif
+
     SDL_Rect c = ui_window_begin(&l->win, ui_id("lab", 0), "Genetic Laboratory", false);
     int fh = gfx_font_h(), rh = fh + 10;
     char buf[64];

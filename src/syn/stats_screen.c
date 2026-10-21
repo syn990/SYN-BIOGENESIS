@@ -31,6 +31,7 @@
 #include "syn/history.h"
 #include "syn/library_screen.h"
 #include "syn/palette.h"
+#include "syn/shell.h"
 #include "synos/synos.h"
 #include "ui/app.h"
 #include "ui/gfx.h"
@@ -1201,13 +1202,15 @@ void syn_stats_frame(App *a, int w, int h)
     }
 
     skin_fill(ui_rect(0, 0, (float)w, (float)h), (Rgb){0, 0, 0}, 0.5f);
-    float pw = fminf((float)w - 48, 1800), ph = (float)h - 48;
-    UIRect panel = {((float)w - pw) / 2, 24, pw, ph};
+    /* under the shell's bar, whose STATISTICS tab names it and whose WORLD
+     * tab (or Esc) goes back */
+    float under_bar = SHELL_BAR_H + 10;
+    float pw = fminf((float)w - 32, 1800), ph = (float)h - under_bar - 16;
+    UIRect panel = {((float)w - pw) / 2, under_bar, pw, ph};
     skin_panel(panel, true);
 
-    /* the title, the tabs, BACK */
+    /* the tabs */
     float x = panel.x + PAD, y = panel.y + 14;
-    x += skin_text(fo->big, "STATISTICS", x, y, TONE_TEXT, ALIGN_LEFT) + 24;
     for (int t = 0; t < TAB_COUNT; t++) {
         float tw = skin_text_width(fo->bold, k_tabs[t]) + 34;
         UIRect r = {x, y, tw, 36};
@@ -1223,11 +1226,6 @@ void syn_stats_frame(App *a, int w, int h)
         for (int t = 0; t < TAB_COUNT; t++)
             if (ui_key_pressed(SDLK_1 + t))
                 S.tab = (Tab)t;
-    UIRect back = {panel.x + panel.w - PAD - 120, y, 120, 36};
-    if (button(back, "BACK", false)) {
-        synos_set_screen(SYNOS_WORLD);
-        return;
-    }
 
     /* the tab's own controls */
     y += 50;

@@ -27,6 +27,7 @@
 #include "syn/batch.h"
 #include "syn/library.h"
 #include "syn/palette.h"
+#include "syn/shell.h"
 #include "syn/telescope_screen.h"
 #include "synos/synos.h"
 #include "ui/app.h"
@@ -760,15 +761,16 @@ void syn_library_frame(App *a, int w, int h)
         L.sel = -1;
 
     skin_fill(ui_rect(0, 0, (float)w, (float)h), (Rgb){0, 0, 0}, 0.5f);
-    float pw = fminf((float)w - 48, 2400), ph = (float)h - 48;
-    UIRect panel = {((float)w - pw) / 2, 24, pw, ph};
+    /* below the shell's bar (syn/shell.h); Esc goes back */
+    float top = SHELL_BAR_H + 10;
+    float pw = fminf((float)w - 48, 2400), ph = (float)h - top - 24;
+    UIRect panel = {((float)w - pw) / 2, top, pw, ph};
     skin_panel(panel, true);
 
     float x = panel.x + PAD, y = panel.y + 14, right = panel.x + panel.w - PAD;
     x += skin_text(fo->big, "LIBRARY", x, y, TONE_TEXT, ALIGN_LEFT) + 14;
     x += skin_text(fo->body, SIM_TITLE, x, y + 9, TONE_MUTED, ALIGN_LEFT) + 18;
-    UIRect back = {right - 110, y, 110, 36};
-    UIRect imp = {back.x - 8 - 170, y, 170, 36};
+    UIRect imp = {right - 170, y, 170, 36};
     char rootfit[600];
     skin_text(fo->small, skin_fit(fo->small, syn_library_root(), imp.x - 16 - x, rootfit, sizeof rootfit), x,
               y + 12, TONE_MUTED, ALIGN_LEFT);
@@ -776,10 +778,6 @@ void syn_library_frame(App *a, int w, int h)
         filedlg_open(a, FD_LIBRARY_IMPORT, false, "bgg", a->last_dir_genes);
     if (over(imp))
         ui_tooltip("Copy a genetic code file (.bgg) into the folder shown");
-    if (button(back, "BACK", false, true)) {
-        synos_set_screen((SynosScreen)L.back);
-        return;
-    }
     y += 56;
 
     float bottom = panel.y + panel.h - PAD;

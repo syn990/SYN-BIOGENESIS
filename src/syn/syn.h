@@ -70,6 +70,9 @@ void syn_view_zoom(WorldView *v, const World *w, double factor);
 void syn_view_actual_size(WorldView *v, const World *w);
 void syn_view_fit(WorldView *v, const World *w);
 void syn_view_draw(WorldView *v, const World *w, const Organism *selected);
+/* The minimap: shown (only over the world, not behind the screens), and
+ * the height kept clear at the bottom of the view (the shell's hints). */
+void syn_view_hud(bool minimap, int bottom);
 /* Something on screen moves even with the simulation paused. */
 bool syn_animating(void);
 

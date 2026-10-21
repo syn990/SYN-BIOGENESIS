@@ -106,6 +106,24 @@ bool ui_popup_showing(void);
 /* After a stretch in which events went elsewhere (a world being made):
  * the mouse buttons held and the pointer as they are now. */
 void ui_input_resync(void);
+
+/* A line edited without being drawn, for the SYN-OS shell's own fields:
+ * called each frame it is shown, it holds the keyboard, puts in what is
+ * typed (not on the frame it took the keyboard, so the key that opened it
+ * isn't typed), and edits as a terminal's line does (Ctrl+U, Ctrl+W,
+ * Ctrl+A and Ctrl+E too). The caller draws buf, the cursor at *cursor.
+ * Returns the key that asks something of the caller, or UI_LINE_NONE. */
+typedef enum {
+    UI_LINE_NONE,
+    UI_LINE_ENTER,
+    UI_LINE_ESCAPE,
+    UI_LINE_TAB,
+    UI_LINE_UP,
+    UI_LINE_DOWN,
+    UI_LINE_PAGE_UP,
+    UI_LINE_PAGE_DOWN,
+} UiLineKey;
+UiLineKey ui_line_edit(uint32_t id, char *buf, size_t cap, int *cursor);
 #endif
 /* The chosen item for owner, once (or -1). */
 int ui_popup_take(uint32_t owner);
@@ -116,6 +134,11 @@ typedef struct {
     int x, y, w, h;
     bool open;
     bool centred; /* placed on first show */
+#ifdef BIO_SYN_EDITION
+    /* SYN-OS: a screen, not a window: where the caller puts it, with no
+     * close box and no dragging, under a labwc title bar */
+    bool docked;
+#endif
 } UIWin;
 
 /* Draws frame and title bar, handles dragging and the close box. Returns

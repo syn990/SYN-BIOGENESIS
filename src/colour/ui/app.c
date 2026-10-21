@@ -41,6 +41,8 @@
 #include "syn/genesis_screen.h"
 #include "syn/history.h"
 #include "syn/sidecar.h"
+#include "syn/params_screen.h"
+#include "syn/shell.h"
 #include "syn/stats_screen.h"
 #include "syn/syn.h"
 #include "synos/synos.h"
@@ -59,7 +61,16 @@ static int g_switch;
 /* SYN-OS: the world has been entered from the main menu (CONTINUE goes back to it) */
 static bool g_entered;
 /* SYN-OS: a status message is on screen (it fades, so keep drawing) */
-static bool g_toast_shown;
+/* The generator's state when this world was begun here, which gives its
+ * seed; a world opened from a file doesn't say. */
+static uint64_t g_made_state;
+static bool g_made_known;
+
+/* the seed that starts java.util.Random at a state (setSeed's scrambling undone) */
+static long long state_seed(uint64_t state)
+{
+    return (long long)((state ^ 0x5DEECE66DULL) & ((1ULL << 48) - 1));
+}
 /* how the last new world's making ended (syn/genesis_screen.h) */
 static SynGenesisEnd g_genesis_end;
 static void quit_now(App *a);
@@ -93,6 +104,9 @@ void fmt_num(char *out, size_t n, double v)
 void app_set_status(App *a, const char *msg)
 {
     snprintf(a->status, sizeof a->status, "%s", msg);
+    /* SYN-OS says it as mako does */
+    if (synos_active())
+        syn_shell_notify(msg, false);
 }
 
 void app_set_clipboard(App *a, GeneticCode *gc)
@@ -140,6 +154,8 @@ static void new_world(App *a)
     a->selected = NULL;
     a->tracked = NULL;
     /* made a little at a time, shown being made when it takes a while */
+    g_made_state = g_rng.seed;
+    g_made_known = true;
     SynGenesis g;
     SynGenesisEnd end = g_genesis_end = syn_genesis_run(&g, &a->world, a->ren);
     syn_history_reset(&a->world, false);
@@ -268,6 +284,7 @@ static void do_file_action(App *a, FilePurpose purpose, const char *path)
         if (bgw_load(&a->world, path, err, sizeof err)) {
             syn_world_reset();
             syn_history_reset(&a->world, true);
+            g_made_known = false;
             syn_sidecar_load(&a->world, path);
             {
                 const char *base = strrchr(path, '/');
@@ -434,6 +451,22 @@ void msgbox_draw(App *a)
     MsgBox *m = &a->msg;
     if (!m->win.open)
         return;
+    /* SYN-OS asks as SYN-DEBT does; the answers are the same */
+    if (synos_active()) {
+        int W, H;
+        SDL_GetRendererOutputSize(a->ren, &W, &H);
+        static const char *const quit[] = {"SAVE", "DON'T SAVE", "CANCEL"};
+        static const char *const over[] = {"REPLACE IT", "NO"};
+        static const char *const info[] = {"OK"};
+        const char *const *labels = m->purpose == MB_QUIT_SAVE ? quit : m->purpose == MB_OVERWRITE ? over : info;
+        int n = m->purpose == MB_QUIT_SAVE ? 3 : m->purpose == MB_OVERWRITE ? 2 : 1;
+        int answer = syn_shell_dialog(W, H, m->title, m->text, labels, n);
+        if (answer >= 0) {
+            m->win.open = false;
+            g_msg_answer = answer;
+        }
+        return;
+    }
     SDL_Rect c = ui_window_begin(&m->win, ui_id("msgbox", 0), m->title, true);
     int y = c.y + 4;
     const char *s = m->text;
@@ -575,12 +608,38 @@ typedef enum {
     A_FAMILY, /* the selected organism's species, in the family tree */
     A_MINIMAP,
     A_KEEP, /* the selected organism's code into the being library */
-    A_LOOK, /* A_LOOK + a Look */
+    /* SYN-OS's screens and shell */
+    A_WORLD,
+    A_LIBRARY,
+    A_ARENA,
+    A_CONSOLE,
+    A_LAUNCHER,
+    A_FULLSCREEN,
+    A_STEP,  /* one frame on, paused */
+    A_GENES, /* the selected organism's genes in the laboratory */
+    A_LOOK,  /* A_LOOK + a Look */
     A_LOOK_LAST = A_LOOK + LOOK_COUNT - 1,
 } Action;
 
 static void about(App *a)
 {
+    if (synos_active()) {
+        msgbox_open(a, MB_INFO, "About Biogenesis",
+                    "Biogenesis 0.9, Color Mod 2.01, rewritten in C: SYN-BIOGENESIS\n"
+                    "http://biogenesis.sourceforge.net/\n"
+                    "Biogenesis 0.9 and the Heritage edition: OPTIONS, or the commands (/)\n"
+                    "\n"
+                    "Copyright (c) Joan Queralt Molina 2006-2010\n"
+                    "Version 0.9 by MarcoDBAA 2018-2019\n"
+                    "Color Mod by MarcoDBAA 2012-2022\n"
+                    "STRtrees (by Vivid Solutions) implemented by Richard David Williams\n"
+                    "Artwork by Ananda Daydream, Florian Haag (http://toolbaricons.sourceforge.net/)\n"
+                    "Noto Sans; SYN Terminal, from Terminus by Dimitar Zhekov; Font Awesome Free: "
+                    "the SIL Open Font License\n"
+                    "\n"
+                    "Released under the GNU General Public License, version 2 or later.");
+        return;
+    }
     msgbox_open(a, MB_INFO, "About Biogenesis",
                 "Biogenesis\n"
                 "http://biogenesis.sourceforge.net/\n"
@@ -749,6 +808,13 @@ static void do_action(App *a, Action act)
         stats_open(a);
         break;
     case A_LAB:
+        /* SYN-OS: back to the code being made, if there is one */
+        if (synos_active()) {
+            if (!a->lab.win.open)
+                lab_open(a, a->clipboard);
+            synos_set_screen(SYNOS_LAB);
+            break;
+        }
         lab_open(a, a->clipboard);
         break;
     case A_INC_CO2:
@@ -770,6 +836,12 @@ static void do_action(App *a, Action act)
         world_disperse_all(w);
         break;
     case A_PARAMS:
+        /* SYN-OS has a screen of its own for them */
+        if (synos_active()) {
+            syn_params_open(a);
+            synos_set_screen(SYNOS_PARAMS);
+            break;
+        }
         params_open(a);
         break;
     case A_MANUAL:
@@ -881,6 +953,38 @@ static void do_action(App *a, Action act)
     case A_FIT:
         syn_view_fit(&a->view, w);
         break;
+    case A_WORLD:
+        /* the laboratory keeps its code until it is closed */
+        synos_set_screen(SYNOS_WORLD);
+        break;
+    case A_LIBRARY:
+        syn_library_open_from(synos_screen());
+        synos_set_screen(SYNOS_LIBRARY);
+        break;
+    case A_ARENA:
+        synos_set_screen(SYNOS_ARENA);
+        break;
+    case A_CONSOLE:
+        syn_shell_console_toggle();
+        break;
+    case A_LAUNCHER:
+        syn_shell_launcher_open();
+        break;
+    case A_FULLSCREEN:
+        synos_set_fullscreen(!synos_fullscreen());
+        break;
+    case A_STEP:
+        if (!a->active) {
+            world_time(w);
+            syn_history_frame(w);
+        }
+        break;
+    case A_GENES:
+        if (b) {
+            lab_open(a, b->gc);
+            synos_set_screen(SYNOS_LAB);
+        }
+        break;
     case A_FAMILY:
         if (b)
             syn_stats_family(b);
@@ -979,38 +1083,6 @@ static const Menu menus[] = {{"Game", menu_game, N_ITEMS(menu_game)},
                              {"View", menu_view, N_ITEMS(menu_view)},
                              {"Help", menu_help, N_ITEMS(menu_help)}};
 #define N_MENUS 5
-
-/* the SYN-OS interface's menus, in its top bar */
-static const MenuItem synos_game[] = {{"New", A_NEW},
-                                      {"Pause  (P)", A_START_STOP},
-                                      {"Open...", A_OPEN},
-                                      {"Save  (S)", A_SAVE},
-                                      {"Backup  (B)", A_BACKUP},
-                                      {"Save as...", A_SAVE_AS},
-                                      {"-", A_NONE},
-                                      {"Main menu  (Esc)", A_MAIN_MENU},
-                                      {"Options...", A_OPTIONS},
-                                      {"Biogenesis 0.9...", A_SWITCH_BIOGENESIS},
-                                      {"-", A_NONE},
-                                      {"Quit", A_QUIT}};
-static const MenuItem synos_view[] = {{"Zoom in  (+)", A_ZOOM_IN},
-                                      {"Zoom out  (-)", A_ZOOM_OUT},
-                                      {"Actual size  (0)", A_ZOOM_1},
-                                      {"Fit world  (Home)", A_FIT},
-                                      {"Minimap  (M)", A_MINIMAP},
-                                      {"Abort tracking", A_ABORT_TRACKING},
-                                      {"-", A_NONE},
-                                      {"Classic", A_LOOK + LOOK_CLASSIC},
-                                      {"Biological", A_LOOK + LOOK_BIOLOGICAL},
-                                      {"Galaxy", A_LOOK + LOOK_GALAXY},
-                                      {"Digital (SYN-OS)", A_LOOK + LOOK_DIGITAL},
-                                      {"-", A_NONE},
-                                      {"Heritage edition", A_INTERFACE}};
-static const Menu synos_menus[] = {{"Game", synos_game, N_ITEMS(synos_game)},
-                                   {"Actions", menu_actions, N_ITEMS(menu_actions)},
-                                   {"World", menu_world, N_ITEMS(menu_world)},
-                                   {"View", synos_view, N_ITEMS(synos_view)},
-                                   {"Help", menu_help, N_ITEMS(menu_help)}};
 
 static void open_menu(App *a, uint32_t owner, int x, int y, const MenuItem *items, int n)
 {
@@ -1215,6 +1287,8 @@ static void status_bar(App *a, SDL_Rect r)
 static bool g_click;
 static int g_click_x, g_click_y;
 
+static int synos_menu_items(App *a, Organism *b, ShellCommand *c);
+
 static void world_mouse(App *a)
 {
     SDL_Rect v = a->view.view;
@@ -1236,6 +1310,22 @@ static void world_mouse(App *a)
         a->selected = world_find_organism_from_position(&a->world, ix, iy);
     }
     uint32_t pop = ui_id("orgpopup", 0);
+    /* SYN-OS: labwc's menu, with what was clicked as its title */
+    if (synos_active() && ui_pressed(in, 3)) {
+        a->popup_wx = ix;
+        a->popup_wy = iy;
+        Organism *b = world_find_organism_from_position(&a->world, ix, iy);
+        a->selected = b;
+        ShellCommand items[24];
+        int n = synos_menu_items(a, b, items);
+        char title[64];
+        if (b)
+            snprintf(title, sizeof title, "%s %d", b->alive ? "ORGANISM" : "CORPSE", b->id);
+        else
+            snprintf(title, sizeof title, "THE WORLD AT %d, %d", ix, iy);
+        syn_shell_menu_open(mx, my, title, items, n);
+        return;
+    }
     if (ui_pressed(in, 3)) {
         a->popup_wx = ix;
         a->popup_wy = iy;
@@ -1259,218 +1349,507 @@ static void world_mouse(App *a)
         do_action(a, menu_void[got].act);
 }
 
-/* ---- the SYN-OS interface's world screen ---- */
+/* ---- the SYN-OS interface's world: the shell (syn/shell.h) ---- */
 
-#define SYN_BAR_H 46
+#define CMD(...) (c[n++] = (ShellCommand){__VA_ARGS__})
 
-/* label over value, as SYN-TREK's HUD; returns the width taken */
-static float synos_figure(float x, float y, const char *label, const char *value, bool right)
+/* this frame's commands */
+static ShellCommand g_cmds[128];
+static int g_ncmds;
+
+/* Everything the window does, as the launcher, the console and the menus
+ * offer it: Heritage's menus and toolbar, and the SYN edition's screens. */
+static int synos_commands(App *a, ShellCommand *c)
 {
-    const Fonts *fo = synos_fonts();
-    float w = fmaxf(skin_text_width(fo->small, label), skin_text_width(fo->bold, value));
-    if (right)
-        x -= w;
-    skin_text(fo->small, label, x, y, TONE_MUTED, ALIGN_LEFT);
-    skin_text(fo->bold, value, x, y + skin_text_height(fo->small) - 1, TONE_TEXT, ALIGN_LEFT);
-    return w;
+    Organism *b = a->selected;
+    bool alive = b && b->alive, dead = b && !b->alive;
+    SynosScreen scr = synos_screen();
+    int n = 0;
+    const char *s = "WORLD";
+    CMD(.id = A_NEW, .section = s, .label = "New world", .word = "new", .icon = ICON_SEEDLING,
+        .tip = "A new world, made from the parameters");
+    CMD(.id = A_START_STOP, .section = s, .label = a->active ? "Pause" : "Resume", .key = "P",
+        .word = "pause", .icon = a->active ? ICON_PAUSE : ICON_PLAY);
+    CMD(.id = A_STEP, .section = s, .label = "One frame on", .key = ".", .word = "step",
+        .icon = ICON_STEP, .disabled = a->active, .tip = "While paused: the world one frame on");
+    CMD(.id = A_OPEN, .section = s, .label = "Open a world...", .key = "Ctrl+O", .word = "open",
+        .icon = ICON_OPEN);
+    CMD(.id = A_SAVE, .section = s, .label = "Save", .key = "S", .word = "save", .icon = ICON_SAVE);
+    CMD(.id = A_SAVE_AS, .section = s, .label = "Save as...", .key = "Ctrl+Shift+S", .word = "saveas",
+        .icon = ICON_SAVE);
+    CMD(.id = A_BACKUP, .section = s, .label = "Backup", .key = "B", .word = "backup", .icon = ICON_BACKUP,
+        .tip = "Saved beside its file, the time in its name");
+    s = "ATMOSPHERE";
+    CMD(.id = A_INC_CO2, .section = s, .label = "Increase CO2", .word = "co2+", .icon = ICON_SMOG,
+        .tip = "1000 more carbon dioxide in the atmosphere");
+    CMD(.id = A_DEC_CO2, .section = s, .label = "Decrease CO2", .word = "co2-", .icon = ICON_LEAF,
+        .tip = "1000 less carbon dioxide, no more than there is");
+    CMD(.id = A_INC_CH4, .section = s, .label = "Increase CH4", .word = "ch4+", .icon = ICON_FIRE,
+        .tip = "1000 more methane in the atmosphere");
+    CMD(.id = A_DEC_CH4, .section = s, .label = "Decrease CH4", .word = "ch4-", .icon = ICON_LEAF,
+        .tip = "1000 less methane, no more than there is");
+    s = "EVERYONE";
+    CMD(.id = A_KILL_ALL, .section = s, .label = "Kill all", .word = "killall", .icon = ICON_SKULL);
+    CMD(.id = A_DISPERSE_ALL, .section = s, .label = "Disperse all corpses", .word = "disperseall",
+        .icon = ICON_WIND);
+    s = "NEW LIFE";
+    CMD(.id = A_CREATE_RANDOM, .section = s, .label = "Create a random organism", .word = "random",
+        .icon = ICON_WAND);
+    CMD(.id = A_PASTE, .section = s, .label = "Paste the copied organism", .key = "Ctrl+V",
+        .word = "paste", .icon = ICON_PASTE, .disabled = !a->clipboard);
+    CMD(.id = A_IMPORT, .section = s, .label = "Import a .bgg...", .word = "import", .icon = ICON_IMPORT);
+    s = "THE ORGANISM SELECTED";
+    CMD(.id = A_TRACK, .section = s, .label = a->tracked && a->tracked == b ? "Stop tracking" : "Track",
+        .key = "T", .word = "track", .icon = ICON_CROSSHAIRS, .disabled = !alive);
+    CMD(.id = A_FEED, .section = s, .label = "Feed", .key = "F", .word = "feed", .icon = ICON_BOLT,
+        .disabled = !alive);
+    CMD(.id = A_WEAKEN, .section = s, .label = "Weaken", .word = "weaken", .icon = ICON_HEART_CRACK,
+        .disabled = !alive);
+    CMD(.id = A_REPRODUCE, .section = s, .label = "Force reproduction", .word = "reproduce",
+        .icon = ICON_SEEDLING, .disabled = !alive);
+    CMD(.id = A_REJUVENATE, .section = s, .label = "Rejuvenate", .word = "rejuvenate",
+        .icon = ICON_ROTATE, .disabled = !alive);
+    CMD(.id = A_KILL, .section = s, .label = "Kill", .key = "Del", .word = "kill", .icon = ICON_SKULL,
+        .disabled = !alive);
+    CMD(.id = A_COPY, .section = s, .label = "Copy its genetic code", .key = "Ctrl+C", .word = "copy",
+        .icon = ICON_COPY, .disabled = !alive);
+    CMD(.id = A_EXPORT, .section = s, .label = "Export its genes...", .word = "export",
+        .icon = ICON_EXPORT, .disabled = !alive);
+    CMD(.id = A_KEEP, .section = s, .label = "Keep in the library", .word = "keep",
+        .icon = ICON_BOOKMARK, .disabled = !b);
+    CMD(.id = A_SAVE_IMAGE, .section = s, .label = "Save its image...", .word = "image",
+        .icon = ICON_IMAGE, .disabled = !alive);
+    CMD(.id = A_GENES, .section = s, .label = "Its genes in the laboratory", .key = "G",
+        .word = "genes", .icon = ICON_DNA, .disabled = !b);
+    CMD(.id = A_FAMILY, .section = s, .label = "Its family", .word = "family", .icon = ICON_SITEMAP,
+        .disabled = !b);
+    CMD(.id = A_REVIVE, .section = s, .label = "Revive", .word = "revive", .icon = ICON_HEART_PULSE,
+        .disabled = !dead);
+    CMD(.id = A_DISPERSE, .section = s, .label = "Disperse", .word = "disperse", .icon = ICON_WIND,
+        .disabled = !dead);
+    s = "VIEW";
+    CMD(.id = A_ZOOM_IN, .section = s, .label = "Zoom in", .key = "+", .word = "in", .icon = ICON_ZOOM_IN);
+    CMD(.id = A_ZOOM_OUT, .section = s, .label = "Zoom out", .key = "-", .word = "out",
+        .icon = ICON_ZOOM_OUT);
+    CMD(.id = A_ZOOM_1, .section = s, .label = "Actual size", .key = "0", .word = "actual",
+        .icon = ICON_SEARCH);
+    CMD(.id = A_FIT, .section = s, .label = "Fit the world", .key = "Home", .word = "fit",
+        .icon = ICON_EXPAND);
+    CMD(.id = A_MINIMAP, .section = s, .label = "Minimap", .key = "M", .word = "minimap", .icon = ICON_MAP,
+        .on = syn_minimap());
+    CMD(.id = A_ABORT_TRACKING, .section = s, .label = "Stop tracking", .word = "untrack",
+        .icon = ICON_CROSSHAIRS, .disabled = !a->tracked);
+    for (int l = 0; l < LOOK_COUNT; l++)
+        CMD(.id = A_LOOK + l, .section = s, .label = syn_look_name((Look)l), .key = l == 0 ? "L" : NULL,
+            .icon = ICON_PALETTE, .on = syn_look() == (Look)l,
+            .tip = l == 0 ? "L goes through the looks" : NULL);
+    s = "SCREENS";
+    CMD(.id = A_WORLD, .section = s, .label = "World", .word = "world", .icon = ICON_GLOBE,
+        .on = scr == SYNOS_WORLD);
+    CMD(.id = A_STATS, .section = s, .label = "Statistics", .word = "stats", .icon = ICON_CHART,
+        .on = scr == SYNOS_STATS);
+    CMD(.id = A_LAB, .section = s, .label = "Genetic laboratory", .word = "lab", .icon = ICON_FLASK,
+        .on = scr == SYNOS_LAB);
+    CMD(.id = A_LIBRARY, .section = s, .label = "Being library", .word = "library", .icon = ICON_BOOK,
+        .on = scr == SYNOS_LIBRARY);
+    CMD(.id = A_ARENA, .section = s, .label = "Arena", .word = "arena", .icon = ICON_TROPHY,
+        .on = scr == SYNOS_ARENA);
+    CMD(.id = A_PARAMS, .section = s, .label = "Parameters", .word = "parameters", .icon = ICON_SLIDERS,
+        .on = scr == SYNOS_PARAMS);
+    CMD(.id = A_OPTIONS, .section = s, .label = "Options", .word = "options", .icon = ICON_GEAR);
+    CMD(.id = A_MAIN_MENU, .section = s, .label = "Main menu", .key = "Esc", .word = "menu",
+        .icon = ICON_HOUSE);
+    s = "SYSTEM";
+    CMD(.id = A_CONSOLE, .section = s, .label = "Console", .key = "`", .word = NULL, .icon = ICON_TERMINAL,
+        .on = syn_shell_console_showing());
+    CMD(.id = A_FULLSCREEN, .section = s, .label = "Fullscreen", .key = "F11", .word = "fullscreen",
+        .icon = ICON_EXPAND, .on = synos_fullscreen());
+    CMD(.id = A_SWITCH_BIOGENESIS, .section = s, .label = "Biogenesis 0.9...", .word = "biogenesis",
+        .icon = ICON_PALETTE);
+    CMD(.id = A_INTERFACE, .section = s, .label = "Heritage edition", .word = "heritage", .icon = ICON_BACKUP,
+        .tip = "Biogenesis' own window, as the original has it");
+    CMD(.id = A_MANUAL, .section = s, .label = "User manual", .word = "manual", .icon = ICON_INFO);
+    CMD(.id = A_ABOUT, .section = s, .label = "About Biogenesis", .word = "about", .icon = ICON_INFO);
+    CMD(.id = A_QUIT, .section = s, .label = "Quit", .key = "Ctrl+Q", .word = "quit", .icon = ICON_POWER);
+    return n;
 }
 
-static Action synos_top_bar(App *a, int W)
+/* the commands a right click on an organism, a corpse or empty space offers */
+static int synos_menu_items(App *a, Organism *b, ShellCommand *c)
 {
-    const Fonts *fo = synos_fonts();
-    Action act = A_NONE;
-    /* the world's figures, right of the tools, or on a second row when the
-     * window is too narrow for them */
-    char time_s[32], pop[32], o2[32], co2[32], ch4[32], fps[16], zoom[16];
-    fmt_num(time_s, sizeof time_s, (double)world_get_time(&a->world));
-    fmt_num(pop, sizeof pop, a->world.population);
-    fmt_num(o2, sizeof o2, a->world.o2);
-    fmt_num(co2, sizeof co2, a->world.co2);
-    fmt_num(ch4, sizeof ch4, a->world.ch4);
-    snprintf(fps, sizeof fps, "%d", a->active ? a->fps : 0);
-    snprintf(zoom, sizeof zoom, "%d%%", (int)lround(a->view.zoom * 100));
-    const char *fig[][2] = {{"ZOOM", zoom}, {"FPS", fps}, {"CH4", ch4},          {"CO2", co2},
-                            {"O2", o2},     {"POPULATION", pop}, {"TIME", time_s}};
-    int nfig = (int)(sizeof fig / sizeof fig[0]);
-    float figs_w = -24;
-    for (int i = 0; i < nfig; i++)
-        figs_w += fmaxf(skin_text_width(fo->small, fig[i][0]), skin_text_width(fo->bold, fig[i][1])) + 24;
-    figs_w += synos_speed(0, 0, false) + 24;
-    float left_w = 18 + skin_text_width(fo->heading, "BIOGENESIS") + 18 + 14 +
-                   7 * (float)(SYN_BAR_H - 14 + 14);
-    for (int m = 0; m < N_MENUS; m++)
-        left_w += skin_text_width(fo->bold, synos_menus[m].title) + 28 + 4;
-    bool two_rows = left_w + 10 + figs_w + 18 > (float)W;
-    int bar_h = two_rows ? SYN_BAR_H + 40 : SYN_BAR_H;
+    int n = 0;
+    if (b && b->alive) {
+        CMD(.id = A_TRACK, .label = a->tracked == b ? "Stop tracking" : "Track", .key = "T",
+            .icon = ICON_CROSSHAIRS);
+        CMD(.id = A_FEED, .label = "Feed", .key = "F", .icon = ICON_BOLT);
+        CMD(.id = A_WEAKEN, .label = "Weaken", .icon = ICON_HEART_CRACK);
+        CMD(.id = A_REPRODUCE, .label = "Force reproduction", .icon = ICON_SEEDLING);
+        CMD(.id = A_REJUVENATE, .label = "Rejuvenate", .icon = ICON_ROTATE);
+        CMD(.id = A_KILL, .label = "Kill", .key = "Del", .icon = ICON_SKULL);
+        CMD(.id = 0, .label = "-");
+        CMD(.id = A_COPY, .label = "Copy", .key = "Ctrl+C", .icon = ICON_COPY);
+        CMD(.id = A_EXPORT, .label = "Export...", .icon = ICON_EXPORT);
+        CMD(.id = A_KEEP, .label = "Keep in the library", .icon = ICON_BOOKMARK);
+        CMD(.id = A_SAVE_IMAGE, .label = "Save image...", .icon = ICON_IMAGE);
+        CMD(.id = 0, .label = "-");
+        CMD(.id = A_GENES, .label = "Its genes", .key = "G", .icon = ICON_DNA);
+        CMD(.id = A_FAMILY, .label = "Its family", .icon = ICON_SITEMAP);
+    } else if (b) {
+        CMD(.id = A_REVIVE, .label = "Revive", .icon = ICON_HEART_PULSE);
+        CMD(.id = A_DISPERSE, .label = "Disperse", .icon = ICON_WIND);
+        CMD(.id = 0, .label = "-");
+        CMD(.id = A_FAMILY, .label = "Its family", .icon = ICON_SITEMAP);
+    } else {
+        CMD(.id = A_PASTE, .label = "Paste", .key = "Ctrl+V", .icon = ICON_PASTE, .disabled = !a->clipboard);
+        CMD(.id = A_CREATE_RANDOM, .label = "Create randomly", .icon = ICON_WAND);
+        CMD(.id = A_IMPORT, .label = "Import...", .icon = ICON_IMPORT);
+    }
+    return n;
+}
+#undef CMD
 
-    SDL_Rect bar = {0, 0, W, bar_h};
-    ui_layer_begin(ui_id("synbar", 0), bar, false);
-    skin_bar(synos_rect(bar));
-    float x = 18;
-    x += skin_text(fo->heading, "BIOGENESIS", x, (SYN_BAR_H - skin_text_height(fo->heading)) / 2,
-                   TONE_ACCENT, ALIGN_LEFT) + 18;
-    for (int m = 0; m < N_MENUS; m++) {
-        uint32_t id = ui_id("synmenu", (uint32_t)m);
-        const Menu *mn = &synos_menus[m];
-        int w = (int)skin_text_width(fo->bold, mn->title) + 28;
-        SDL_Rect r = {(int)x, 7, w, SYN_BAR_H - 14};
-        bool open = ui_popup_open_for(id);
-        skin_tab(synos_rect(r), fo->bold, mn->title,
-                 (WidgetState){.hover = ui_hover(r), .active = open});
-        if (ui_pressed(r, 1))
-            open_menu(a, id, r.x, SYN_BAR_H, mn->items, mn->n);
-        int got = ui_popup_take(id);
-        if (got >= 0)
-            act = mn->items[got].act;
-        x += (float)w + 4;
-    }
-    x += 14;
-    Tool tools[] = {
-        {"menu_new", "New", "New world", A_NEW},
-        {a->active ? "menu_stop" : "menu_start", a->active ? "Pause" : "Resume",
-         a->active ? "Pause process  (P)" : "Resume process  (P)", A_START_STOP},
-        {"menu_save", "Save", "Save world  (S)", A_SAVE},
-        {"menu_backup", "Backup", "Backup world  (B)", A_BACKUP},
-        {"menu_increase_co2", "+CO2", "Increase CO2", A_INC_CO2},
-        {"menu_decrease_co2", "-CO2", "Decrease CO2", A_DEC_CO2},
-        {"menu_stop_tracking", "Untrack", "Abort tracking", A_ABORT_TRACKING},
-    };
-    int s = SYN_BAR_H - 14;
-    for (size_t i = 0; i < sizeof tools / sizeof tools[0]; i++) {
-        bool en = tools[i].act != A_ABORT_TRACKING || a->tracked;
-        if (ui_icon_button(ui_id("syntool", (uint32_t)i), (SDL_Rect){(int)x, 7, s + 8, s},
-                           gfx_icon(tools[i].icon), tools[i].label, en, tools[i].tip))
-            act = tools[i].act;
-        x += (float)s + 14;
-    }
-    float rx = (float)W - 18;
-    float fy = (SYN_BAR_H - skin_text_height(fo->small) - skin_text_height(fo->bold) + 1) / 2;
-    if (two_rows)
-        fy += SYN_BAR_H - 8;
-    for (int i = 0; i < nfig; i++) {
-        rx -= synos_figure(rx, fy, fig[i][0], fig[i][1], true) + 24;
-        /* the speed asked for, beside the frames a second it gets */
-        if (i == 1)
-            rx -= synos_speed(rx, fy, true) + 24;
-    }
-    ui_layer_end();
-    return act;
+static void card_body(void *ud, SDL_Rect r)
+{
+    App *a = ud;
+    if (a->selected)
+        gc_panel(a, ui_id("synigc", 0), r, a->selected->gc);
 }
 
-/* InfoToolbar's figures and the organism's actions, on a panel over the world */
-static Action synos_info_panel(App *a, int H)
+/* InfoToolbar's figures and the organism's actions: its card */
+static Action synos_card(App *a, int W, int H)
 {
-    const Fonts *fo = synos_fonts();
     Organism *o = a->selected;
-    Action act = A_NONE;
-    SDL_Rect r = {16, H - 16 - 178, 838, 178};
-    ui_layer_begin(ui_id("syninfo", 0), r, false);
-    skin_panel(synos_rect(r), true);
-    int by = r.y + r.h - 14 - 28;
-    gc_panel(a, ui_id("synigc", 0), (SDL_Rect){r.x + 14, r.y + 14, 88, 88}, o->gc);
-    if (ui_button(ui_id("synexam", 0), (SDL_Rect){r.x + 14, by, 88, 28}, "Genes", true))
-        lab_open(a, o->gc);
-
-    float x0 = (float)r.x + 120, y = (float)r.y + 10;
-    char head[64];
-    snprintf(head, sizeof head, "ORGANISM %d", o->id);
-    float hw = skin_text(fo->heading, head, x0, y, TONE_TEXT, ALIGN_LEFT);
-    const char *state = !o->alive ? "DEAD" : a->tracked == o ? "TRACKING" : "ALIVE";
-    float sw = skin_text(fo->small_bold, state, x0 + hw + 14, y + 5,
-                         !o->alive ? TONE_WARN : a->tracked == o ? TONE_ACCENT : TONE_GOOD, ALIGN_LEFT);
-    /* its species, as the family tree names it, at the right */
+    ShellCard c = {0};
+    snprintf(c.title, sizeof c.title, "ORGANISM %d", o->id);
+    c.state = !o->alive ? "DEAD" : a->tracked == o ? "TRACKING" : "ALIVE";
+    c.state_tone = !o->alive ? TONE_WARN : a->tracked == o ? TONE_ACCENT : TONE_GOOD;
+    /* its species, as the family tree names it */
     char sp[64];
     syn_stats_species(o, sp, sizeof sp);
-    float spw = 0;
-    if (sp[0]) {
-        float rx = (float)(r.x + r.w - 14);
-        float nw = skin_text(fo->bold, sp, rx, y + 3, TONE_TEXT, ALIGN_RIGHT);
-        spw = nw + 8 + skin_text(fo->small_bold, "SPECIES", rx - nw - 8, y + 6, TONE_MUTED, ALIGN_RIGHT) + 20;
-    }
+    if (sp[0])
+        snprintf(c.subtitle, sizeof c.subtitle, "SPECIES %s", sp);
     /* Color Mod's clade, its family as it names it */
-    char clade[300], fit[300];
-    snprintf(clade, sizeof clade, "clade %s", o->gc->clade_id ? o->gc->clade_id : "-1");
-    skin_text(fo->small,
-              skin_fit(fo->small, clade, (float)(r.x + r.w) - 14 - spw - (x0 + hw + sw + 28), fit, sizeof fit),
-              x0 + hw + sw + 28, y + 5, TONE_MUTED, ALIGN_LEFT);
-    y += skin_text_height(fo->heading) + 4;
+    if (o->gc->clade_id) {
+        size_t k = strlen(c.subtitle);
+        snprintf(c.subtitle + k, sizeof c.subtitle - k, "%sclade %.40s", k ? "   " : "", o->gc->clade_id);
+    }
     struct {
         const char *label;
         double value;
-    } cells[] = {{"GENERATION", o->gc->generation}, {"AGE", o->age >> 8},
-                 {"ENERGY", o->energy},             {"MASS", o->mass},
-                 {"LIFE EXPECTANCY", o->max_age},   {"CHILDREN", o->total_children},
-                 {"VICTIMS", o->total_kills},       {"INFECTED", o->total_infected},
-                 {"REPRODUCTION", o->reproduce_energy}, {"MUTATION \xe2\x80\xb1", o->gc->mutationrate}};
-    float colw = 104;
+    } cells[] = {{"GENERATION", o->gc->generation},  {"AGE", o->age >> 8},
+                 {"ENERGY", o->energy},              {"MASS", o->mass},
+                 {"LIFESPAN", o->max_age},           {"CHILDREN", o->total_children},
+                 {"VICTIMS", o->total_kills},        {"INFECTED", o->total_infected},
+                 {"BIRTH AT", o->reproduce_energy},  {"MUTATES", o->gc->mutationrate}};
     for (int i = 0; i < 10; i++) {
-        char v[64];
-        fmt_num(v, sizeof v, cells[i].value);
-        synos_figure(x0 + colw * (float)(i % 5),
-                     y + (float)(i / 5) * (skin_text_height(fo->small) + skin_text_height(fo->bold) + 4),
-                     cells[i].label, v, false);
+        c.cells[i].label = cells[i].label;
+        fmt_num(c.cells[i].value, sizeof c.cells[i].value, cells[i].value);
+        c.cells[i].tone = TONE_TEXT;
     }
-
-    /* what can be done to it, as the toolbar and the popup offer */
-    static const Tool alive[] = {
-        {NULL, "Feed", "Feed organism", A_FEED},       {NULL, "Weaken", "Weaken organism", A_WEAKEN},
-        {NULL, "Kill", "Kill organism", A_KILL},       {NULL, "Copy", "Copy genetic code", A_COPY},
-        {NULL, "Image", "Save image", A_SAVE_IMAGE},   {NULL, "Track", "Track organism", A_TRACK},
-        {NULL, "Family", "Its species in the family tree", A_FAMILY},
-        {NULL, "Keep", "Keep its genetic code in the being library", A_KEEP},
-    };
-    static const Tool dead[] = {
-        {NULL, "Revive", "Revive organism", A_REVIVE},
-        {NULL, "Disperse", "Disperse organism", A_DISPERSE},
-        {NULL, "Family", "Its species in the family tree", A_FAMILY},
-    };
-    const Tool *t = o->alive ? alive : dead;
-    int n = o->alive ? 8 : 3;
-    int bx = (int)x0;
-    for (int i = 0; i < n; i++) {
-        const char *label = t[i].act == A_TRACK && a->tracked == o ? "Untrack" : t[i].label;
-        if (ui_button(ui_id("synotool", (uint32_t)i), (SDL_Rect){bx, by, 82, 28}, label, true))
-            act = t[i].act;
-        if (ui_hover((SDL_Rect){bx, by, 82, 28}))
-            ui_tooltip(t[i].tip);
-        bx += 88;
+    /* its mutation rate is in ten-thousandths: as a percentage */
+    snprintf(c.cells[9].value, sizeof c.cells[9].value, "%.2f%%", o->gc->mutationrate / 100.0);
+    c.ncells = 10;
+    /* what it has towards a child, and how much of its life has gone */
+    c.bar_label[0] = "TO A CHILD";
+    c.bar[0] = o->reproduce_energy > 0 ? o->energy / o->reproduce_energy : 0;
+    c.bar_tone[0] = TONE_GOOD;
+    c.bar_label[1] = "LIFE";
+    c.bar[1] = o->max_age > 0 ? (double)(o->age >> 8) / o->max_age : 0;
+    c.bar_tone[1] = c.bar[1] > 0.8 ? TONE_BAD : TONE_WARN;
+    ShellCommand *t = c.actions;
+    int n = 0;
+    if (o->alive) {
+        t[n++] = (ShellCommand){.id = A_FEED, .label = "Feed", .icon = ICON_BOLT, .tip = "Feed it  (F)"};
+        t[n++] = (ShellCommand){.id = A_WEAKEN, .label = "Weaken", .icon = ICON_HEART_CRACK};
+        t[n++] = (ShellCommand){.id = A_KILL, .label = "Kill", .icon = ICON_SKULL, .tip = "Kill it  (Del)"};
+        t[n++] = (ShellCommand){.id = A_COPY, .label = "Copy", .icon = ICON_COPY,
+                                .tip = "Copy its genetic code  (Ctrl+C)"};
+        t[n++] = (ShellCommand){.id = A_TRACK, .label = a->tracked == o ? "Untrack" : "Track",
+                                .icon = ICON_CROSSHAIRS, .on = a->tracked == o, .tip = "Follow it  (T)"};
+        t[n++] = (ShellCommand){.id = A_GENES, .label = "Genes", .icon = ICON_DNA,
+                                .tip = "Its genes in the laboratory  (G)"};
+        t[n++] = (ShellCommand){.id = A_FAMILY, .label = "Family", .icon = ICON_SITEMAP,
+                                .tip = "Its species in the family tree"};
+        t[n++] = (ShellCommand){.id = A_KEEP, .label = "Keep", .icon = ICON_BOOKMARK,
+                                .tip = "Keep its genetic code in the being library"};
+    } else {
+        t[n++] = (ShellCommand){.id = A_REVIVE, .label = "Revive", .icon = ICON_HEART_PULSE};
+        t[n++] = (ShellCommand){.id = A_DISPERSE, .label = "Disperse", .icon = ICON_WIND};
+        t[n++] = (ShellCommand){.id = A_FAMILY, .label = "Family", .icon = ICON_SITEMAP};
+        t[n++] = (ShellCommand){.id = A_KEEP, .label = "Keep", .icon = ICON_BOOKMARK};
     }
-    ui_layer_end();
-    return act;
+    c.nactions = n;
+    c.draw_body = card_body;
+    c.ud = a;
+    return (Action)syn_shell_card(W, H, &c);
 }
 
-/* The status line's messages ("World loaded successfully") come and go. */
-static void synos_toast(App *a, int W, int H)
+/* The bar: the screens, then the world's figures */
+static Action synos_bar(App *a, int W)
 {
-    static char shown[sizeof a->status];
-    static Uint32 since;
-    if (strcmp(shown, a->status) != 0) {
-        snprintf(shown, sizeof shown, "%s", a->status);
-        since = SDL_GetTicks();
-    }
-    Uint32 age = SDL_GetTicks() - since;
-    g_toast_shown = shown[0] && age <= 3500;
-    if (!g_toast_shown)
-        return;
-    const Fonts *fo = synos_fonts();
-    float alpha = age > 3000 ? 1.0f - (float)(age - 3000) / 500.0f : 1.0f;
-    float w = skin_text_width(fo->body, shown) + 40, h = skin_text_height(fo->body) + 18;
-    UIRect r = {((float)W - w) / 2, (float)H - 24 - h, w, h};
-    skin_set_alpha(alpha);
-    skin_panel(r, true);
-    skin_text(fo->body, shown, r.x + w / 2, r.y + 9, TONE_TEXT, ALIGN_CENTER);
-    skin_set_alpha(1);
+    SynosScreen scr = synos_screen();
+    bool lab = scr == SYNOS_LAB, params = scr == SYNOS_PARAMS;
+    ShellTab tabs[] = {
+        {"WORLD", ICON_GLOBE, A_WORLD, scr == SYNOS_WORLD && !lab, false},
+        {"STATISTICS", ICON_CHART, A_STATS, scr == SYNOS_STATS, false},
+        {"LABORATORY", ICON_FLASK, A_LAB, lab, false},
+        {"LIBRARY", ICON_BOOK, A_LIBRARY, scr == SYNOS_LIBRARY, false},
+        {"ARENA", ICON_TROPHY, A_ARENA, scr == SYNOS_ARENA, false},
+        {"PARAMETERS", ICON_SLIDERS, A_PARAMS, params, false},
+    };
+    ShellModule m[9];
+    memset(m, 0, sizeof m);
+    int n = 0;
+    /* the process: running or paused */
+    m[n].icon = a->active ? ICON_PLAY : ICON_PAUSE;
+    snprintf(m[n].text, sizeof m[n].text, "%s", a->active ? "" : "PAUSED");
+    m[n].level = a->active ? 0 : 1;
+    m[n].id = A_START_STOP;
+    m[n++].tip = a->active ? "Running. Click to pause  (P)" : "Paused. Click to go on  (P)";
+    m[n++].custom = synos_speed;
+    char v[32];
+    fmt_num(v, sizeof v, (double)world_get_time(&a->world));
+    m[n].icon = ICON_CLOCK;
+    snprintf(m[n].text, sizeof m[n].text, "%s", v);
+    m[n++].tip = "Time, in time units of 256 frames";
+    fmt_num(v, sizeof v, a->world.population);
+    m[n].icon = ICON_USERS;
+    snprintf(m[n].text, sizeof m[n].text, "%s", v);
+    /* waybar's critical: nothing left alive */
+    m[n].level = a->world.population == 0 ? 2 : 0;
+    m[n++].tip = a->world.population == 0 ? "Population: nothing is alive" : "Population: organisms alive";
+    fmt_num(v, sizeof v, a->world.o2);
+    m[n].icon = ICON_LEAF;
+    snprintf(m[n].text, sizeof m[n].text, "O2 %s", v);
+    m[n++].tip = "Oxygen in the atmosphere";
+    fmt_num(v, sizeof v, a->world.co2);
+    m[n].icon = ICON_SMOG;
+    snprintf(m[n].text, sizeof m[n].text, "CO2 %s", v);
+    m[n++].tip = "Carbon dioxide in the atmosphere";
+    fmt_num(v, sizeof v, a->world.ch4);
+    m[n].icon = ICON_FIRE;
+    snprintf(m[n].text, sizeof m[n].text, "CH4 %s", v);
+    m[n++].tip = "Methane in the atmosphere";
+    m[n].icon = ICON_DISPLAY;
+    snprintf(m[n].text, sizeof m[n].text, "%d FPS", a->active ? a->fps : 0);
+    /* waybar's warning: well short of the speed asked for */
+    m[n].level = a->active && P.delay > 1 && a->fps > 0 && a->fps < 700 / P.delay ? 1 : 0;
+    m[n++].tip = "Frames a second the world gets";
+    m[n].icon = ICON_SEARCH;
+    snprintf(m[n].text, sizeof m[n].text, "%d%%", (int)lround(a->view.zoom * 100));
+    m[n].id = A_FIT;
+    m[n++].tip = "Zoom. Click to fit the world  (Home)";
+    return (Action)syn_shell_bar(W, "BIOGENESIS", tabs, (int)(sizeof tabs / sizeof tabs[0]), m, n, A_MAIN_MENU);
 }
 
-/* The SYN-OS interface's frame: the world, and over it the top bar and
- * panels, the main menu or the options. */
+/* ---- the console: every command by its word, and the technical ones ---- */
+
+/* the console's own words, beside the commands' */
+static const char *const k_console_words[] = {
+    "help", "clear", "seed", "generator", "run", "speed", "co2", "ch4", "find", "goto", "zoom", "look",
+    "theme", "info",
+};
+
+static void console_help(const ShellCommand *c, int n)
+{
+    syn_shell_print(SHELL_HEAD, "THE CONSOLE");
+    syn_shell_print(SHELL_OUT, "  help               this");
+    syn_shell_print(SHELL_OUT, "  clear              an empty console  (Ctrl+L)");
+    syn_shell_print(SHELL_OUT, "  info               the world: its size, time, life, file, seed");
+    syn_shell_print(SHELL_OUT, "  speed N|max        frames a second");
+    syn_shell_print(SHELL_OUT, "  run N              N frames on, as fast as they go");
+    syn_shell_print(SHELL_OUT, "  co2 + [N] | - [N]  Increase or Decrease CO2, N times (ch4 too)");
+    syn_shell_print(SHELL_OUT, "  find ID            select organism ID and fly to it");
+    syn_shell_print(SHELL_OUT, "  goto X Y [ZOOM]    the view on a point of the world");
+    syn_shell_print(SHELL_OUT, "  zoom Z             the view at a zoom (1 is actual size)");
+    syn_shell_print(SHELL_OUT, "  look NAME          classic, biological, galaxy, digital");
+    syn_shell_print(SHELL_OUT, "  theme [NAME]       the SYN-OS theme; alone, every one");
+    syn_shell_print(SHELL_HEAD, "THE RANDOM GENERATOR (java.util.Random, 48 bits)");
+    syn_shell_print(SHELL_OUT, "  seed               the seed this world was made from, when it was made here");
+    syn_shell_print(SHELL_OUT, "  generator [STATE]  the generator's state now, or set it (0x... or decimal)");
+    syn_shell_list(c, n);
+}
+
+/* a number, or say what's wrong with it */
+static bool console_number(const char *s, double *v)
+{
+    char *end;
+    *v = strtod(s, &end);
+    if (end == s || *end || !isfinite(*v)) {
+        syn_shell_print(SHELL_ERROR, "not a number: %s", s);
+        return false;
+    }
+    return true;
+}
+
+static void console_run(App *a, const char *text, const ShellCommand *cmds, int ncmds, Action *act)
+{
+    char line[256];
+    snprintf(line, sizeof line, "%s", text);
+    char *v[12];
+    int argc = syn_shell_split(line, v, 12);
+    if (!argc)
+        return;
+    World *w = &a->world;
+    const char *k = v[0];
+    if (!strcasecmp(k, "help") || !strcmp(k, "?")) {
+        console_help(cmds, ncmds);
+    } else if (!strcasecmp(k, "clear")) {
+        syn_shell_clear();
+    } else if (!strcasecmp(k, "info")) {
+        const char *f = strrchr(a->game_file, '/');
+        syn_shell_print(SHELL_OUT, "%s, %d x %d, time %lld",
+                        a->game_file[0] ? (f ? f + 1 : a->game_file) : "a new world", w->width, w->height,
+                        (long long)world_get_time(w));
+        syn_shell_print(SHELL_OUT, "%d alive, %d corpses; O2 %.6g, CO2 %.6g, CH4 %.6g", w->population,
+                        world_get_ncorpses(w), w->o2, w->co2, w->ch4);
+        if (g_made_known)
+            syn_shell_print(SHELL_OUT, "made from seed %lld (and every seed equal to it mod 2^48)",
+                            (long long)state_seed(g_made_state));
+    } else if (!strcasecmp(k, "seed")) {
+        if (g_made_known)
+            syn_shell_print(SHELL_OUT, "seed %lld: the generator began this world at 0x%012llx",
+                            (long long)state_seed(g_made_state), (unsigned long long)g_made_state);
+        else
+            syn_shell_print(SHELL_NOTE, "this world came from a file; the telescope finds its seed");
+    } else if (!strcasecmp(k, "generator")) {
+        if (argc > 1) {
+            char *end;
+            unsigned long long st = strtoull(v[1], &end, 0);
+            if (*end) {
+                syn_shell_print(SHELL_ERROR, "not a state: %s", v[1]);
+                return;
+            }
+            g_rng.seed = st & ((1ULL << 48) - 1);
+            syn_shell_print(SHELL_GOOD, "the world goes on from another thread");
+        }
+        syn_shell_print(SHELL_OUT, "the generator: 0x%012llx", (unsigned long long)g_rng.seed);
+    } else if (!strcasecmp(k, "run")) {
+        double x;
+        if (argc < 2 || !console_number(v[1], &x) || x < 1)
+            return;
+        Uint32 t0 = SDL_GetTicks();
+        long long done = 0;
+        for (; done < (long long)x; done++) {
+            world_time(w);
+            syn_history_frame(w);
+        }
+        if (a->tracked && !a->tracked->alive)
+            a->tracked = NULL;
+        syn_shell_print(SHELL_OUT, "%lld frames in %.2f s; time %lld", done,
+                        (SDL_GetTicks() - t0) / 1000.0, (long long)world_get_time(w));
+    } else if (!strcasecmp(k, "speed")) {
+        if (argc > 1) {
+            double x = 0;
+            if (!strcasecmp(v[1], "max"))
+                P.delay = 1;
+            else if (console_number(v[1], &x) && x > 0)
+                P.delay = x >= 1000 ? 1 : (int)lround(1000.0 / x) < 1 ? 1 : (int)lround(1000.0 / x);
+        }
+        syn_shell_print(SHELL_OUT, P.delay <= 1 ? "speed: as fast as it goes" : "speed: %d frames a second",
+                        (int)lround(1000.0 / P.delay));
+    } else if (!strcasecmp(k, "co2") || !strcasecmp(k, "ch4")) {
+        bool ch4 = !strcasecmp(k, "ch4");
+        if (argc < 2 || (strcmp(v[1], "+") && strcmp(v[1], "-"))) {
+            syn_shell_print(SHELL_ERROR, "%s + [N] or %s - [N]", k, k);
+            return;
+        }
+        double times = 1;
+        if (argc > 2 && !console_number(v[2], &times))
+            return;
+        for (int i = 0; i < (int)times && i < 10000; i++)
+            do_action(a, ch4 ? (v[1][0] == '+' ? A_INC_CH4 : A_DEC_CH4)
+                             : (v[1][0] == '+' ? A_INC_CO2 : A_DEC_CO2));
+        syn_shell_print(SHELL_OUT, "O2 %.6g, CO2 %.6g, CH4 %.6g", w->o2, w->co2, w->ch4);
+    } else if (!strcasecmp(k, "find")) {
+        double x;
+        if (argc < 2 || !console_number(v[1], &x))
+            return;
+        Organism *o = NULL;
+        for (int i = 0; i < w->norgs; i++)
+            if (w->orgs[i]->id == (int)x)
+                o = w->orgs[i];
+        if (!o) {
+            syn_shell_print(SHELL_ERROR, "no organism %d in the world", (int)x);
+            return;
+        }
+        a->selected = o;
+        a->tracked = o->alive ? o : NULL;
+        syn_shell_print(SHELL_OUT, "organism %d, %s, at %.0f, %.0f", o->id, o->alive ? "alive" : "dead",
+                        o->dcenter_x, o->dcenter_y);
+    } else if (!strcasecmp(k, "goto")) {
+        double x, y, z;
+        if (argc < 3 || !console_number(v[1], &x) || !console_number(v[2], &y))
+            return;
+        a->tracked = NULL;
+        if (argc > 3 && console_number(v[3], &z) && z > 0)
+            syn_view_zoom(&a->view, w, z / a->view.zoom);
+        wv_center_on(&a->view, w, x, y);
+    } else if (!strcasecmp(k, "zoom")) {
+        double z;
+        if (argc < 2 || !console_number(v[1], &z) || z <= 0)
+            return;
+        syn_view_zoom(&a->view, w, z / a->view.zoom);
+    } else if (!strcasecmp(k, "look")) {
+        for (int l = 0; argc > 1 && l < LOOK_COUNT; l++)
+            if (!strncasecmp(syn_look_name((Look)l), v[1], strlen(v[1]))) {
+                syn_set_look((Look)l);
+                syn_shell_print(SHELL_OUT, "the look: %s", syn_look_name((Look)l));
+                return;
+            }
+        syn_shell_print(SHELL_ERROR, "look classic | biological | galaxy | digital");
+    } else if (!strcasecmp(k, "theme")) {
+        int nt = synos_theme_count();
+        if (argc < 2) {
+            for (int i = 0; i < nt; i++)
+                syn_shell_print(i == synos_theme_index() ? SHELL_GOOD : SHELL_OUT, "  %s",
+                                theme_short_name(synos_theme_at(i)));
+            return;
+        }
+        for (int i = 0; i < nt; i++)
+            if (!strcasecmp(theme_short_name(synos_theme_at(i)), v[1]) ||
+                !strcasecmp(synos_theme_at(i)->name, v[1])) {
+                synos_set_theme(i);
+                syn_shell_print(SHELL_OUT, "the theme: %s", synos_theme_at(i)->name);
+                return;
+            }
+        syn_shell_print(SHELL_ERROR, "no theme %s (theme lists them)", v[1]);
+    } else {
+        const ShellCommand *c = syn_shell_lookup(cmds, ncmds, k);
+        if (!c) {
+            syn_shell_print(SHELL_ERROR, "%s: no such command (help lists them)", k);
+            return;
+        }
+        if (c->disabled) {
+            syn_shell_print(SHELL_ERROR, "%s: not now", c->label);
+            return;
+        }
+        /* open NAME, save NAME: straight to the file */
+        if ((c->id == A_OPEN || c->id == A_SAVE || c->id == A_SAVE_AS) && argc > 1) {
+            if (c->id == A_OPEN)
+                do_file_action(a, FD_OPEN_WORLD, v[1]);
+            else
+                save_world_to(a, v[1]);
+            return;
+        }
+        *act = (Action)c->id;
+    }
+}
+
+/* The SYN-OS interface's frame: the world, and over it the shell, the main
+ * menu or the options, or another screen. */
 static Action synos_frame(App *a, int W, int H, bool keys)
 {
     Action act = A_NONE;
     SynosScreen scr = synos_screen();
-    if (scr == SYNOS_WORLD) {
+    bool shell = scr != SYNOS_MENU && scr != SYNOS_OPTIONS;
+    bool world = scr == SYNOS_WORLD;
+    g_ncmds = synos_commands(a, g_cmds);
+    syn_view_hud(world, SHELL_HINTS_H);
+    if (world) {
         bool dragged;
-        g_click = syn_view_input(&a->view, &a->world, keys, &g_click_x, &g_click_y, &dragged);
+        g_click = syn_view_input(&a->view, &a->world, keys && !syn_shell_modal(), &g_click_x, &g_click_y,
+                                 &dragged);
         /* moving the view by hand lets go of the tracked organism */
         if (dragged)
             a->tracked = NULL;
@@ -1483,7 +1862,7 @@ static Action synos_frame(App *a, int W, int H, bool keys)
         if (a->tracked)
             syn_view_follow(&a->view, &a->world, a->tracked);
     }
-    syn_view_draw(&a->view, &a->world, scr == SYNOS_WORLD ? a->selected : NULL);
+    syn_view_draw(&a->view, &a->world, world ? a->selected : NULL);
 
     if (scr == SYNOS_MENU) {
         switch (synos_menu_frame(W, H, g_entered)) {
@@ -1523,16 +1902,80 @@ static Action synos_frame(App *a, int W, int H, bool keys)
         syn_arena_frame(a, W, H);
     } else if (scr == SYNOS_LIBRARY) {
         syn_library_frame(a, W, H);
+    } else if (scr == SYNOS_PARAMS) {
+        syn_params_frame(a, W, H);
+    } else if (scr == SYNOS_LAB) {
+        /* the laboratory itself is drawn with the windows, docked here */
+        skin_fill(ui_rect(0, 0, (float)W, (float)H), (Rgb){0, 0, 0}, 0.5f);
+        bool any_keys = !ui_text_focused() && !ui_any_modal() && !ui_popup_showing();
+        if (!a->lab.win.open || (any_keys && !syn_shell_modal() && ui_key_pressed(SDLK_ESCAPE))) {
+            a->lab.win.open = false;
+            synos_set_screen(SYNOS_WORLD);
+        }
     } else {
-        Action t = synos_top_bar(a, W);
-        if (t != A_NONE)
-            act = t;
         if (a->selected) {
-            t = synos_info_panel(a, H);
+            Action t = synos_card(a, W, H);
             if (t != A_NONE)
                 act = t;
         }
-        synos_toast(a, W, H);
+        static const char *const hints[] = {"/", "commands", "`", "console", "P", "pause", "Home", "fit",
+                                            "M", "map", "L", "look", "Esc", "menu"};
+        char right[200];
+        const char *f = strrchr(a->game_file, '/');
+        int k = snprintf(right, sizeof right, "%s   %d x %d",
+                         a->game_file[0] ? (f ? f + 1 : a->game_file) : "a new world", a->world.width,
+                         a->world.height);
+        if (g_made_known && k > 0 && (size_t)k < sizeof right)
+            snprintf(right + k, sizeof right - (size_t)k, "   seed %lld", (long long)state_seed(g_made_state));
+        syn_shell_hints(W, H, hints, 7, right);
+    }
+    if (shell) {
+        Action t = synos_bar(a, W);
+        if (t != A_NONE)
+            act = t;
+    }
+    return act;
+}
+
+/* Over everything, the windows too: the console, the notifications, the
+ * menu a right click opened and the launcher. */
+static Action synos_overlays(App *a, int W, int H)
+{
+    Action act = A_NONE;
+    SynosScreen scr = synos_screen();
+    if (scr == SYNOS_MENU || scr == SYNOS_OPTIONS)
+        return act;
+    ShellCommand *cmds = g_cmds;
+    int ncmds = g_ncmds;
+        /* the console completes its words and the commands' */
+    static const char *words[200];
+    int nw = 0;
+    for (int i = 0; i < (int)(sizeof k_console_words / sizeof k_console_words[0]); i++)
+        words[nw++] = k_console_words[i];
+    for (int i = 0; i < ncmds && nw < 200; i++)
+        if (cmds[i].word)
+            words[nw++] = cmds[i].word;
+    bool centre = false;
+    const char *line = syn_shell_console(W, SHELL_BAR_H, H, words, nw);
+    if (line) {
+        console_run(a, line, cmds, ncmds, &act);
+        centre = true;
+    }
+    syn_shell_notifications(W, SHELL_BAR_H);
+    int got = syn_shell_menu(W, H);
+    if (got)
+        act = (Action)got;
+    got = syn_shell_launcher(W, H, cmds, ncmds);
+    if (got) {
+        act = (Action)got;
+        centre = true;
+    }
+    /* made or pasted from the launcher or the console: in the middle of the view */
+    if (centre && (act == A_PASTE || act == A_CREATE_RANDOM)) {
+        double cx, cy;
+        wv_screen_to_world(&a->view, W / 2, H / 2, &cx, &cy);
+        a->popup_wx = (int)floor(cx);
+        a->popup_wy = (int)floor(cy);
     }
     return act;
 }
@@ -1628,18 +2071,62 @@ static void frame(App *a)
             act = A_OPEN;
         if (ui_key_pressed(SDLK_q) && (ui_mods() & KMOD_CTRL))
             act = A_QUIT;
-        /* SYN-OS: with nothing selected, Esc is the main menu */
-        if (synos && !a->selected && !ui_popup_showing() && ui_key_pressed(SDLK_ESCAPE))
+        /* SYN-OS: with nothing selected, Esc is the main menu; a menu open
+         * takes it for itself */
+        bool shell_open = synos && (syn_shell_menu_showing() || syn_shell_launcher_showing());
+        if (synos && !shell_open && !a->selected && !ui_popup_showing() && ui_key_pressed(SDLK_ESCAPE))
             act = A_MAIN_MENU;
-        if (ui_key_pressed(SDLK_ESCAPE))
+        if (synos && !shell_open) {
+            bool ctrl = (ui_mods() & KMOD_CTRL) != 0;
+            Organism *b = a->selected;
+            if (ui_key_pressed(SDLK_SLASH))
+                act = A_LAUNCHER;
+            if (ui_key_pressed(SDLK_BACKQUOTE))
+                act = A_CONSOLE;
+            if (ui_key_pressed(SDLK_F11))
+                act = A_FULLSCREEN;
+            if (ui_key_pressed(SDLK_PERIOD))
+                act = A_STEP;
+            if (b && ui_key_pressed(SDLK_t))
+                act = A_TRACK;
+            if (b && ui_key_pressed(SDLK_g))
+                act = A_GENES;
+            if (b && b->alive && ui_key_pressed(SDLK_f))
+                act = A_FEED;
+            if (b && b->alive && ui_key_pressed(SDLK_DELETE))
+                act = A_KILL;
+            if (b && b->alive && ctrl && ui_key_pressed(SDLK_c))
+                act = A_COPY;
+            if (ctrl && ui_key_pressed(SDLK_v) && a->clipboard) {
+                double cx, cy;
+                int mx, my;
+                ui_mouse(&mx, &my);
+                wv_screen_to_world(&a->view, mx, my, &cx, &cy);
+                a->popup_wx = (int)floor(cx);
+                a->popup_wy = (int)floor(cy);
+                act = A_PASTE;
+            }
+        }
+        if (!shell_open && ui_key_pressed(SDLK_ESCAPE))
             a->selected = NULL;
     }
     ui_layer_end();
 
     /* windows, back to front; modal ones last; the SYN-OS main menu and
      * options hide the world's windows until it is back */
-    if (!synos || synos_screen() == SYNOS_WORLD || synos_screen() == SYNOS_STATS ||
-        synos_screen() == SYNOS_ARENA || synos_screen() == SYNOS_LIBRARY) {
+    SynosScreen scr = synos_screen();
+    if (synos) {
+        /* SYN-OS: the laboratory is a screen of its own */
+        if (scr == SYNOS_WORLD || scr == SYNOS_STATS || scr == SYNOS_ARENA || scr == SYNOS_LIBRARY) {
+            stats_draw(a);
+            params_draw(a);
+        }
+        if (scr == SYNOS_LAB)
+            lab_draw(a);
+        Action t = synos_overlays(a, W, H);
+        if (t != A_NONE)
+            act = t;
+    } else {
         stats_draw(a);
         lab_draw(a);
         params_draw(a);
@@ -1674,6 +2161,12 @@ static void shot_prepare(App *a, const char *ui)
         wv_clamp(&a->view, &a->world);
         syn_history_reset(&a->world, true);
         syn_sidecar_load(&a->world, load);
+        /* a world from a file: its seed isn't known, and it is the file's */
+        g_made_known = false;
+        if (synos_active()) {
+            snprintf(a->game_file, sizeof a->game_file, "%s", load);
+            syn_shell_notify_clear();
+        }
     }
     const char *sim = getenv("SYN_BIOGENESIS_SHOT_SIM");
     long n = sim ? strtol(sim, NULL, 10) : 0;
@@ -1976,6 +2469,11 @@ int app_run(void)
             /* SYN_BIOGENESIS_SHOT_ARENA runs rounds first (syn/arena_screen.h) */
             syn_arena_shot_prepare();
             synos_set_screen(SYNOS_ARENA);
+        } else if (scr && !strcmp(scr, "params")) {
+            /* SYN_BIOGENESIS_SHOT_TAB names the tab (syn/params_screen.c) */
+            syn_params_open(a);
+            synos_set_screen(SYNOS_PARAMS);
+            g_entered = true;
         } else if (scr && !strcmp(scr, "library")) {
             /* SYN_BIOGENESIS_SHOT_LIBRARY names the folder, or "ladder" */
             syn_library_shot_prepare();
@@ -1988,7 +2486,7 @@ int app_run(void)
         bool idle = !a->active && !a->fdlg.win.open && !shot && !script_text;
         /* SYN-OS keeps drawing while the view moves and on its menus */
         idle = idle && !(synos_active() &&
-                         (syn_animating() || synos_screen() != SYNOS_WORLD || g_toast_shown));
+                         (syn_animating() || synos_screen() != SYNOS_WORLD || syn_shell_animating()));
         if (script_text)
             script_step(a, &script);
         /* paused: sleep until something happens instead of spinning */

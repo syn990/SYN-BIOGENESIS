@@ -17,6 +17,7 @@
 #include "ui/ui.h"
 
 #include <math.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -548,6 +549,84 @@ bool ui_textfield(uint32_t id, SDL_Rect r, char *buf, size_t cap)
     return committed;
 }
 
+#ifdef BIO_SYN_EDITION
+UiLineKey ui_line_edit(uint32_t id, char *buf, size_t cap, int *cursor)
+{
+    int len = (int)strlen(buf);
+    bool fresh = U.focus != id;
+    if (fresh) {
+        if (U.focus) {
+            U.commit_pending = true;
+            U.commit_id = U.focus;
+        }
+        U.focus = id;
+        SDL_StartTextInput();
+        *cursor = len;
+    }
+    U.focus_drawn = true;
+    if (*cursor < 0 || *cursor > len)
+        *cursor = len;
+    if (U.text[0] && !fresh) {
+        size_t tl = strlen(U.text);
+        if ((size_t)len + tl < cap) {
+            memmove(buf + *cursor + tl, buf + *cursor, (size_t)(len - *cursor) + 1);
+            memcpy(buf + *cursor, U.text, tl);
+            *cursor += (int)tl;
+        }
+    }
+    UiLineKey got = UI_LINE_NONE;
+    bool ctrl = (U.mods & KMOD_CTRL) != 0;
+    for (int i = 0; i < U.nkeys && !fresh; i++) {
+        SDL_Keycode k = U.keys[i];
+        len = (int)strlen(buf);
+        if (k == SDLK_BACKSPACE && *cursor > 0) {
+            int p = utf8_prev(buf, *cursor);
+            memmove(buf + p, buf + *cursor, (size_t)(len - *cursor + 1));
+            *cursor = p;
+        } else if (k == SDLK_DELETE && *cursor < len) {
+            int n = utf8_next(buf, *cursor);
+            memmove(buf + *cursor, buf + n, (size_t)(len - n + 1));
+        } else if (k == SDLK_LEFT) {
+            *cursor = utf8_prev(buf, *cursor);
+        } else if (k == SDLK_RIGHT) {
+            *cursor = utf8_next(buf, *cursor);
+        } else if (k == SDLK_HOME || (ctrl && k == SDLK_a)) {
+            *cursor = 0;
+        } else if (k == SDLK_END || (ctrl && k == SDLK_e)) {
+            *cursor = len;
+        } else if (ctrl && k == SDLK_u) {
+            /* the line before the cursor */
+            memmove(buf, buf + *cursor, (size_t)(len - *cursor + 1));
+            *cursor = 0;
+        } else if (ctrl && k == SDLK_w) {
+            /* the word before the cursor */
+            int p = *cursor;
+            while (p > 0 && buf[p - 1] == ' ')
+                p--;
+            while (p > 0 && buf[p - 1] != ' ')
+                p--;
+            memmove(buf + p, buf + *cursor, (size_t)(len - *cursor + 1));
+            *cursor = p;
+        } else if (k == SDLK_RETURN || k == SDLK_KP_ENTER) {
+            got = UI_LINE_ENTER;
+        } else if (k == SDLK_ESCAPE) {
+            got = UI_LINE_ESCAPE;
+        } else if (k == SDLK_TAB) {
+            got = UI_LINE_TAB;
+        } else if (k == SDLK_UP) {
+            got = UI_LINE_UP;
+        } else if (k == SDLK_DOWN) {
+            got = UI_LINE_DOWN;
+        } else if (k == SDLK_PAGEUP) {
+            got = UI_LINE_PAGE_UP;
+        } else if (k == SDLK_PAGEDOWN) {
+            got = UI_LINE_PAGE_DOWN;
+        }
+    }
+    return got;
+}
+#endif
+
 static void draw_drop_arrow(SDL_Rect r)
 {
     int cx = r.x + r.w - 12, cy = r.y + r.h / 2 - 2;
@@ -870,6 +949,24 @@ SDL_Rect ui_window_begin(UIWin *win, uint32_t id, const char *title, bool modal)
     int th = gfx_font_h() + 10;
     int sw, sh;
     SDL_GetRendererOutputSize(gfx_renderer(), &sw, &sh);
+#ifdef BIO_SYN_EDITION
+    if (win->docked && SKINNED) {
+        SDL_Rect frame = {win->x, win->y, win->w, win->h};
+        ui_layer_begin(id, frame, false);
+        skin_panel(synos_rect(frame), true);
+        const Fonts *fo = synos_fonts();
+        float tbh = skin_text_height(fo->mono_small_bold) + 10;
+        UIRect tb = {(float)frame.x + 1, (float)frame.y + 1, (float)frame.w - 2, tbh};
+        Rgb tc = skin_titlebar(tb);
+        char up[96];
+        size_t k = 0;
+        for (; title[k] && k + 1 < sizeof up; k++)
+            up[k] = (char)toupper((unsigned char)title[k]);
+        up[k] = '\0';
+        skin_text_rgb(fo->mono_small_bold, up, tb.x + 12, tb.y + 5, tc.r, tc.g, tc.b, ALIGN_LEFT);
+        return (SDL_Rect){frame.x + 16, frame.y + (int)tbh + 14, frame.w - 32, frame.h - (int)tbh - 28};
+    }
+#endif
     /* keep the title bar reachable */
     if (win->x > sw - 60)
         win->x = sw - 60;

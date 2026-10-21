@@ -34,6 +34,7 @@
 #include "syn/library_screen.h"
 #include "syn/palette.h"
 #include "syn/record.h"
+#include "syn/shell.h"
 #include "syn/telescope_screen.h"
 #include "synos/synos.h"
 #include "ui/app.h"
@@ -2015,16 +2016,17 @@ void syn_arena_frame(App *a, int w, int h)
     }
 
     skin_fill(ui_rect(0, 0, (float)w, (float)h), (Rgb){0, 0, 0}, 0.5f);
-    float pw = fminf((float)w - 48, 2400), ph = (float)h - 48;
-    UIRect panel = {((float)w - pw) / 2, 24, pw, ph};
+    /* below the shell's bar (syn/shell.h), which goes back as Esc does */
+    float top = SHELL_BAR_H + 10;
+    float pw = fminf((float)w - 48, 2400), ph = (float)h - top - 24;
+    UIRect panel = {((float)w - pw) / 2, top, pw, ph};
     skin_panel(panel, true);
 
-    /* the title; START or STOP, PRINT WINNERS, BACK */
+    /* the title; START or STOP, PRINT WINNERS, LIBRARY */
     float x = panel.x + PAD, y = panel.y + 14, right = panel.x + panel.w - PAD;
     x += skin_text(fo->big, "ARENA", x, y, TONE_TEXT, ALIGN_LEFT) + 14;
     skin_text(fo->body, SIM_TITLE, x, y + 9, TONE_MUTED, ALIGN_LEFT);
-    UIRect back = {right - 110, y, 110, 36};
-    UIRect lib = {back.x - 8 - 120, y, 120, 36};
+    UIRect lib = {right - 120, y, 120, 36};
     UIRect print = {lib.x - 8 - 180, y, 180, 36};
     const char *go_label = running ? "STOP" : "START BATTLES";
     float gw = fmaxf(120, skin_text_width(fo->bold, go_label) + 40);
@@ -2054,10 +2056,6 @@ void syn_arena_frame(App *a, int w, int h)
     }
     if (over(lib))
         ui_tooltip("The being library: beings kept from earlier, to put on the ladder");
-    if (button(back, "BACK", false, true)) {
-        synos_set_screen(SYNOS_MENU);
-        return;
-    }
 
     /* SETUP or BATTLES, and how it goes */
     y += 50;

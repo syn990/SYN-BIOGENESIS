@@ -227,3 +227,151 @@ void params_draw(App *a)
         d->win.open = false;
     }
 }
+
+#ifdef BIO_SYN_EDITION
+/* ---- the same fields, for SYN-OS's PARAMETERS screen ---- */
+
+static const char *const k_tab_names[] = {"GENERAL", "WORLD", "ORGANISMS", "METABOLISM", "GENES"};
+
+/* what each does, as the simulation uses it (src/sim/), in k_fields' order */
+static const char *const k_help[N_FIELDS] = {
+    "How long a frame takes at least. 1 runs the world as fast as this computer allows; the bar's "
+    "speed is this setting.",
+    "The width of a new world.",
+    "The height of a new world.",
+    "The oxygen a new world starts with. Organisms breathe it into carbon dioxide.",
+    "The carbon dioxide a new world starts with. Green segments turn it back into oxygen and energy.",
+    "The share of its speed an organism keeps each frame: 1 never slows down, 0 stops at once.",
+    "How much of their speed two organisms keep when they collide: 1 bounces off fully.",
+    "How many organisms a new world is made with.",
+    "The energy each of them starts with, no more than the world's carbon dioxide.",
+    "How long an organism lives, in time units of 256 frames.",
+    "The chance of each mutation when an organism is born: 0 never, 1 always.",
+    "Each frame an organism breathes its mass divided by this. Higher is cheaper to live.",
+    "Below this much carbon dioxide, photosynthesis slows in proportion.",
+    "The energy a corpse loses each frame until it is gone.",
+    "The light a green segment turns into energy is divided by this: higher, less energy.",
+    "A red segment's bite takes its mass times this from the other organism's energy.",
+    "The share of what a bite takes that the biter spends again.",
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+};
+
+int params_count(void)
+{
+    return N_FIELDS;
+}
+
+int params_tab_count(void)
+{
+    return 5;
+}
+
+const char *params_tab(int t)
+{
+    return t >= 0 && t < 5 ? k_tab_names[t] : "";
+}
+
+bool params_tab_genes(int t)
+{
+    return t == T_GENES;
+}
+
+const char *params_tab_note(int t)
+{
+    if (t == T_GENES)
+        return "Probability: how often a random gene is each colour, against the others. Cost: the "
+               "energy each act of that colour uses: a red bite, a green's photosynthesis, a blue "
+               "block, a cyan push, a white infection, a gray kill, a yellow child.";
+    if (t == T_WORLD)
+        return "Size and atmosphere apply to the next new world.";
+    return NULL;
+}
+
+void params_info(int i, ParamsField *out)
+{
+    const Field *f = &k_fields[i];
+    size_t o = f->off;
+    *out = (ParamsField){
+        .tab = f->tab,
+        .label = f->label,
+        .help = k_help[i],
+        .type = f->type == F_INT ? 'i' : 'd',
+        .next_world = o == offsetof(Params, world_width) || o == offsetof(Params, world_height) ||
+                      o == offsetof(Params, initial_o2) || o == offsetof(Params, initial_co2) ||
+                      o == offsetof(Params, initial_organisms) || o == offsetof(Params, initial_energy),
+        .genesis = o == offsetof(Params, initial_organisms),
+    };
+}
+
+char *params_text(App *a, int i)
+{
+    return a->params.f[i];
+}
+
+size_t params_text_cap(void)
+{
+    return sizeof ((ParamsDialog *)0)->f[0];
+}
+
+/* as apply reads it */
+static bool read_field(const Field *f, const char *t, double *v)
+{
+    char *end;
+    errno = 0;
+    if (f->type == F_INT) {
+        long n = strtol(t, &end, 10);
+        *v = (double)n;
+        return end != t && !*end && !errno && n <= 2147483647L && in_range(*v, f->range);
+    }
+    *v = strtod(t, &end);
+    return end != t && !*end && !errno && isfinite(*v) && in_range(*v, f->range);
+}
+
+bool params_valid(App *a, int i)
+{
+    double v;
+    return read_field(&k_fields[i], a->params.f[i], &v);
+}
+
+bool params_changed(App *a, int i)
+{
+    char now[32];
+    fmt_field(now, sizeof now, &k_fields[i], &P);
+    return strcmp(now, a->params.f[i]) != 0;
+}
+
+void params_default_text(int i, char *out, size_t n)
+{
+    Params def;
+    params_set_defaults(&def);
+    fmt_field(out, n, &k_fields[i], &def);
+}
+
+bool params_is_default(App *a, int i)
+{
+    char def[32];
+    params_default_text(i, def, sizeof def);
+    return strcmp(def, a->params.f[i]) == 0;
+}
+
+void params_reload(App *a)
+{
+    load_fields(&a->params, &P);
+}
+
+void params_defaults(App *a)
+{
+    Params def;
+    params_set_defaults(&def);
+    load_fields(&a->params, &def);
+}
+
+void params_commit(App *a)
+{
+    apply(&a->params);
+    /* what was taken, as it now reads; a refused text stays to be put right */
+    for (int i = 0; i < N_FIELDS; i++)
+        if (params_valid(a, i))
+            fmt_field(a->params.f[i], sizeof a->params.f[i], &k_fields[i], &P);
+}
+#endif
