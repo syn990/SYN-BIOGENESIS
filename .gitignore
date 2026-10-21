@@ -14,6 +14,7 @@
 /tests/history_check_colour
 /tests/colour_bgg_tool
 /tests/telescope_check
+/tests/library_check
 /tools/javaref/download/
 /tools/javaref/build/
 /tools/javaref/colour/build/

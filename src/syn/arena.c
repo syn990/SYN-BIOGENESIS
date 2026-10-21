@@ -1959,6 +1959,41 @@ void syn_arena_clear(void)
     board_save();
 }
 
+const ArenaEntry *syn_arena_enter(const GeneticCode *gc, const char *name, char *err, size_t n)
+{
+    syn_arena_init();
+    if (A.foreign) {
+        snprintf(err, n, "the ladder in %s is another simulation's", A.path);
+        return NULL;
+    }
+    /* the arena keeps the code as it reads back from the bytes it saves */
+    size_t bn = 0;
+    uint8_t *bytes = code_bytes(gc, &bn);
+    GeneticCode *copy = code_parse(bytes, bn);
+    ArenaEntry *e = copy ? add_entry() : NULL;
+    if (!e) {
+        snprintf(err, n, copy ? "the ladder is full of beings in rounds" : "the code can't be kept");
+        free(bytes);
+        drop(copy);
+        return NULL;
+    }
+    snprintf(e->name, sizeof e->name, "%s", name && *name ? name : "NEWCOMER");
+    snprintf(e->line, sizeof e->line, "%s", e->name);
+    syn_family_plan(copy, e->plan, sizeof e->plan);
+    e->cycle = A.cycles;
+    e->settings = syn_arena_fingerprint();
+    e->map = A.set.map;
+    e->start = e->level = 1;
+    e->state = ENTRY_IN;
+    e->last = A.cycles;
+    hold(&e->gc, copy);
+    drop(copy);
+    e->bgg = bytes;
+    e->bgg_n = bn;
+    board_save();
+    return e;
+}
+
 void syn_arena_free(void)
 {
     if (!A.inited)
@@ -2099,6 +2134,8 @@ int syn_arena_main(int argc, char **argv)
     A.cli = true;
     const char *out = NULL, *board = NULL;
     bool no_board = false, list = false;
+    const char *enter[16];
+    int nenter = 0;
     ArenaSettings o = {0};
     bool given[8] = {0};
     int64_t seed = 0;
@@ -2143,6 +2180,9 @@ int syn_arena_main(int argc, char **argv)
             A.quiet = true;
         } else if (!strcmp(a, "--list")) {
             list = true;
+        } else if (!strcmp(a, "--enter") && v && nenter < 16) {
+            enter[nenter++] = v;
+            i++;
         } else {
             printf("usage: syn-biogenesis%s --arena [options]\n"
                    "  rounds of the arena's ladder without a window (" SIM_NAME "), each printed as it\n"
@@ -2165,6 +2205,8 @@ int syn_arena_main(int argc, char **argv)
                    "                   being's .bgg\n"
                    "  --list           no rounds: the ladder for these settings, all of it\n"
                    "                   (with --out, printed there too)\n"
+                   "  --enter FILE     put the being in FILE (.bgg) on the ladder at level 1, named\n"
+                   "                   after the file, before any rounds (up to 16 times)\n"
                    "  --quiet          only the ladder at the end\n",
                    SIM_TAG == 9 ? "" : " --colour", syn_arena_cores());
             return strcmp(a, "--help") && strcmp(a, "-h") ? 2 : 0;
@@ -2197,6 +2239,26 @@ int syn_arena_main(int argc, char **argv)
     /* a ladder begun here keeps these settings */
     if (!A.loaded)
         A.saved = *s;
+
+    for (int k = 0; k < nenter; k++) {
+        char err[200], name[40];
+        GeneticCode *gc = bgg_read(enter[k], err, sizeof err);
+        const char *base = strrchr(enter[k], '/');
+        snprintf(name, sizeof name, "%s", base ? base + 1 : enter[k]);
+        char *dot = strrchr(name, '.');
+        if (dot && !strcasecmp(dot, ".bgg"))
+            *dot = '\0';
+        const ArenaEntry *e = gc ? syn_arena_enter(gc, name, err, sizeof err) : NULL;
+        if (e)
+            printf("entered %s at level 1\n", e->name);
+        else
+            fprintf(stderr, "%s: %s\n", enter[k], err);
+        drop(gc);
+        if (!e) {
+            syn_arena_free();
+            return 1;
+        }
+    }
 
     if (list) {
         list_board(0);

@@ -404,12 +404,22 @@ import, CO2 added) takes it off the thread its seed began, so no seed
 replays to it.
 
 **On its own thread.** The generator's state at the saved tick is what a
-loaded world needs to go on as the world it was, not down a new path:
-`syn-biogenesis --headless --load FILE --generator STATE` opens the save
-with the generator where it was. Checked against the jar: its save of seed
-123456789 at tick 3,000, run 1,000 frames from the generator the telescope
-found, is byte for byte the file the jar itself saves at tick 4,000 (in
-`make test`).
+loaded world needs to go on as the world it was, not down a new path. In
+the SYN-OS interface, TELESCOPE on the main menu runs the search on this
+world or a saved one. It runs in this program started again, because the
+search uses the same random generator and parameters as the world on
+screen. Once the seed is found, OPEN ON ITS OWN THREAD opens the save with
+the generator where it was. Without a window, `syn-biogenesis --headless
+--load FILE --generator STATE` does the same. Checked against the jar:
+
+- **Without a window:** the jar's save of seed 123456789 at tick 3,000,
+  run 1,000 frames from the generator the telescope found, is byte for
+  byte the file the jar itself saves at tick 4,000 (in `make test`).
+- **In the window:** the same save, opened on its own thread and run to
+  tick 3,004, is the jar's world at tick 3,004 in every simulation field.
+  The two files differ only in each organism's `_framesColor`, which counts
+  a flash down as it is drawn: the window counts it down, the jar without
+  a window never does, and the original's own window would.
 
 ## The ultimate being
 
@@ -837,6 +847,34 @@ So the tree stays small however long the world runs. The world's sidecar
 (see [Statistics](#statistics)) carries the tree with its names and
 numbers; without one, the tree begins when the world is opened.
 
+### The being library
+
+LIBRARY, on the SYN-OS main menu and in the arena, keeps genetic codes from
+one launch to the next, in folders. It is a real folder tree, one for each
+simulation, since 0.9's and Color Mod's `.bgg` files can't be read by each
+other:
+`~/.config/syn-biogenesis/beings/0.9/` and `.../beings/colour/` (on
+Windows, in `%APPDATA%`). Each being is a `.bgg`, the original's own
+format, with an `.about` file beside it saying where it came from and when.
+The folders are the categories, nested as deep as wanted; a `.bgg` dropped
+into one from outside the program is in the library too.
+
+- **In:** Keep on a selected organism (its panel and its right-click menu),
+  Keep in the laboratory, "Keep in the library" on any being in the arena,
+  the statistics and the family tree, and IMPORT .BGG for files from
+  anywhere. A first library has Saved, Imported, Arena and Bin.
+- **The arena's ladder** is a folder of its own, read only and live: the
+  arena's beings for its settings as they are now, best first, any of
+  which can be kept in the library.
+- **Out:** TO THE ARENA puts a being on the ladder at level 1, to fight
+  beings of its level (`--arena --enter FILE.bgg` does it without a
+  window). INTO THE WORLD places it at the world's middle or the nearest
+  room; GENES opens it in the laboratory; COPY puts it on the clipboard.
+- **Kept in order:** beings are renamed in place, moved between folders,
+  and deleted to the Bin; deleting there, or EMPTY BIN (two clicks),
+  removes them for good. Folders are made, renamed, and removed when
+  empty. Names keep to what every file system takes.
+
 ### Looks
 
 Chosen in OPTIONS, the View menu or with L, and remembered in
@@ -898,7 +936,9 @@ src/syn/        the SYN edition's world view: navigation, the looks, batched dra
                 its history (history.c), family tree (family.c, family_view.c)
                 and statistics screen (stats_screen.c);
                 palette.c, the segment colours of both simulations;
-                the arena (arena*.c); the dice telescope (telescope.c)
+                the arena (arena*.c); the dice telescope (telescope.c) and its
+                screen (telescope_screen.c); the being library (library.c) and
+                its screen (library_screen.c)
 src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
                 (SYN-DEBT's, drawn with SDL_Renderer), the main menu and options
 src/headless.c, src/main.c   Biogenesis 0.9 without a window, its arguments
@@ -936,6 +976,10 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
   cracks back to its state, and the seed of a world the jar saved at tick
   3,000 is found from the save and replayed identical; that save, run
   1,000 frames on from the generator found, is the jar's own tick 4,000
+- the being library, in a folder of its own: codes kept exactly, moved,
+  renamed, binned and imported byte for byte, folders made and removed,
+  and names that would leave the library kept inside it; and a being from
+  a `.bgg` put on the arena's ladder at level 1
 - the SYN edition's history, for both simulations: the same world run with
   and without it hashes the same every frame and saves the same `.bgw`,
   and its books add up; the recorded run's world is made an organism at a
@@ -969,7 +1013,12 @@ is `menu`, `options` or `world` (the default when `SHOT_UI` is set), or
 `charts`, `epochs`, `family`, `timeline`). On the family tab,
 `SYN_BIOGENESIS_SHOT_FAMILY` is `living`, `best` or `notable`,
 `SYN_BIOGENESIS_SHOT_FOCUS` follows the species with the most living, and
-`SYN_BIOGENESIS_SHOT_EXPORT` exports the tree as EXPORT does.
+`SYN_BIOGENESIS_SHOT_EXPORT` exports the tree as EXPORT does. It can also
+be `library`, with `SYN_BIOGENESIS_SHOT_LIBRARY` naming the folder (or
+`ladder`), or `telescope`, with `SYN_BIOGENESIS_SHOT_TELESCOPE` naming a
+saved world to search first (`SYN_BIOGENESIS_SHOT_TELESCOPE_DEFAULTS` for
+the default parameters). Set `XDG_CONFIG_HOME` to keep such runs away
+from your own library and settings.
 `SYN_BIOGENESIS_GENESIS_SHOT=out.png` shows the "Creating world" screen at
 once and saves it, and `SYN_BIOGENESIS_GENESIS_STOP=N` presses Esc on its
 Nth frame.

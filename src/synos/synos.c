@@ -381,7 +381,8 @@ SynosAction synos_menu_frame(int w, int h, bool can_continue)
     ui_mouse(&mx, &my);
 
     /* SYN-TREK's grid: 260px buttons, 48 tall, 30 across and 12 down,
-     * starting 40% of the way down; ARENA, then QUIT, across the bottom */
+     * starting 40% of the way down; ARENA and LIBRARY, then TELESCOPE
+     * (Biogenesis 0.9's only) and QUIT */
     float btn_h = 48.0f, gap_x = 30.0f, gap_y = 12.0f;
     float total_w = 260.0f * 2.0f + gap_x;
     int rows = 4;
@@ -397,8 +398,14 @@ SynosAction synos_menu_frame(int w, int h, bool can_continue)
         {ui_grid_cell(area, 2, rows, 1, 0, gap_x, gap_y), "NEW WORLD", SYNOS_NEW_WORLD, true},
         {ui_grid_cell(area, 2, rows, 0, 1, gap_x, gap_y), "LOAD WORLD", SYNOS_LOAD_WORLD, true},
         {ui_grid_cell(area, 2, rows, 1, 1, gap_x, gap_y), "OPTIONS", SYNOS_OPEN_OPTIONS, true},
-        {ui_grid_cell(area, 1, rows, 0, 2, gap_x, gap_y), "ARENA", SYNOS_OPEN_ARENA, true},
-        {ui_grid_cell(area, 1, rows, 0, 3, gap_x, gap_y), "QUIT", SYNOS_QUIT, true},
+        {ui_grid_cell(area, 2, rows, 0, 2, gap_x, gap_y), "ARENA", SYNOS_OPEN_ARENA, true},
+        {ui_grid_cell(area, 2, rows, 1, 2, gap_x, gap_y), "LIBRARY", SYNOS_OPEN_LIBRARY, true},
+#ifdef BIO_COLOUR
+        {ui_grid_cell(area, 2, rows, 0, 3, gap_x, gap_y), "TELESCOPE", SYNOS_OPEN_TELESCOPE, false},
+#else
+        {ui_grid_cell(area, 2, rows, 0, 3, gap_x, gap_y), "TELESCOPE", SYNOS_OPEN_TELESCOPE, true},
+#endif
+        {ui_grid_cell(area, 2, rows, 1, 3, gap_x, gap_y), "QUIT", SYNOS_QUIT, true},
     };
     int nb = (int)(sizeof b / sizeof b[0]);
 

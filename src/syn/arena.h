@@ -226,6 +226,12 @@ double syn_arena_round_seconds(void);
 int syn_arena_print(const char *dir, char *msg, size_t n);
 /* Forget the beings with these settings. */
 void syn_arena_clear(void);
+/* A being from outside the arena (the library, a .bgg file) put on the
+ * ladder at level 1, under the settings as they are now, to wait for a
+ * round of its level as a qualifier's winner does; its name is given.
+ * NULL, with why, if it can't be (the ladder is another simulation's, or
+ * full of beings fighting). */
+const ArenaEntry *syn_arena_enter(const GeneticCode *gc, const char *name, char *err, size_t n);
 const char *syn_outcome_name(int outcome);
 
 /* syn-biogenesis [--colour] --arena [options]: rounds without a window,

@@ -30,6 +30,7 @@
 #include "sim/params.h"
 #include "syn/arena.h"
 #include "syn/batch.h"
+#include "syn/library_screen.h"
 #include "syn/palette.h"
 #include "synos/synos.h"
 #include "ui/app.h"
@@ -261,8 +262,8 @@ static void body(UIRect r, const GeneticCode *gc, Uint8 alpha)
 }
 
 /* A being that opens in the laboratory on a click; a right click offers
- * copying its code. */
-static void thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const char *tip)
+ * copying its code, or keeping it in the being library under its name. */
+static void thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const char *tip, const char *name)
 {
     int pick = ui_popup_take(id);
     if (pick == 0 && gc)
@@ -271,6 +272,15 @@ static void thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const char *ti
         app_set_clipboard(a, gc);
         app_set_status(a, "Genetic code copied");
         snprintf(S.status, sizeof S.status, "Genetic code copied: paste it into the world from its menu");
+        S.status_at = SDL_GetTicks();
+    } else if (pick == 2 && gc) {
+        char origin[200];
+        snprintf(origin, sizeof origin, "the arena: %.150s", tip ? tip : "");
+        if (syn_library_keep(a, gc, "Arena", name && *name ? name : "ARENA BEING", origin))
+            snprintf(S.status, sizeof S.status, "Kept in the library's Arena folder: %s",
+                     name && *name ? name : "ARENA BEING");
+        else
+            snprintf(S.status, sizeof S.status, "It couldn't be kept in the library");
         S.status_at = SDL_GetTicks();
     }
     gfx_clip_push(sdl(r));
@@ -283,8 +293,8 @@ static void thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const char *ti
         if (ui_pressed(sdl(r), 1))
             lab_open(a, gc);
         if (ui_pressed(sdl(r), 3)) {
-            const char *items[] = {"Open in the laboratory", "Copy genetic code"};
-            ui_popup_open(id, g_mx, g_my, items, NULL, 2);
+            const char *items[] = {"Open in the laboratory", "Copy genetic code", "Keep in the library"};
+            ui_popup_open(id, g_mx, g_my, items, NULL, 3);
         }
     }
 }
@@ -459,7 +469,7 @@ static void lane_card(App *a, UIRect r, int i, const ArenaLane *L)
     UIRect th = {x, fy, foot - 4, foot - 4};
     char tip[128];
     snprintf(tip, sizeof tip, "%s leads round %d: click for the laboratory", L->leader_name, L->cycle);
-    thumb(a, th, L->leader_gc, ui_id("arena-lead", (uint32_t)i), tip);
+    thumb(a, th, L->leader_gc, ui_id("arena-lead", (uint32_t)i), tip, L->leader_name);
     float tx = th.x + th.w + 10, tr = r.x + r.w - 10;
     char fit[64];
     skin_text(fo->bold, skin_fit(fo->bold, L->leader_name[0] ? L->leader_name : "-", tr - tx, fit, sizeof fit), tx,
@@ -594,7 +604,7 @@ static float champion(App *a, UIRect r)
     float h = CARD_TOP + fmaxf(side, text_h) + CARD_IN;
     float cy = card(ui_rect(r.x, r.y, r.w, h), "REIGNING CHAMPION", "the highest on the ladder");
     snprintf(s, sizeof s, "%s, the reigning champion: click for the laboratory", e->name);
-    thumb(a, ui_rect(r.x + CARD_IN, cy, side, side), e->gc, ui_id("arena-champion", e->uid), s);
+    thumb(a, ui_rect(r.x + CARD_IN, cy, side, side), e->gc, ui_id("arena-champion", e->uid), s, e->name);
     float tx = r.x + CARD_IN + side + 18, ty = cy;
     skin_text(fo->heading, skin_fit(fo->heading, e->name, tw, fit, sizeof fit), tx, ty, TONE_TEXT, ALIGN_LEFT);
     skin_text(fo->bold, level, tx, ty + 34, TONE_ACCENT, ALIGN_LEFT);
@@ -922,7 +932,7 @@ static void leaderboard(App *a, UIRect r)
         syn_arena_standing(e, st, sizeof st);
         snprintf(s, sizeof s, "%s, level %d: %s. First won round %d%s%s", e->name, e->level,
                  fighting ? "fighting now" : st, e->cycle, par ? ", as the offspring of " : "", par ? par->name : "");
-        thumb(a, th, e->gc, ui_id("arena-entry", e->uid), s);
+        thumb(a, th, e->gc, ui_id("arena-entry", e->uid), s, e->name);
         float tx = th.x + th.w + 10, tw = c_level - cw_l - tx;
         skin_text(fo->bold, skin_fit(fo->bold, e->name, tw, fit, sizeof fit), tx, y + 6, in ? TONE_TEXT : TONE_MUTED,
                   ALIGN_LEFT);
@@ -991,7 +1001,7 @@ static void rung(App *a, UIRect row, int level, bool top)
             UIRect th = {x, row.y + 4, side, side};
             snprintf(s, sizeof s, "%s, level %d, %d win%s in a row: %s. Click for the laboratory", e->name, level,
                      e->wins, e->wins == 1 ? "" : "s", f ? "fighting now" : "waiting for a challenger");
-            thumb(a, th, e->gc, ui_id("arena-rung", e->uid), s);
+            thumb(a, th, e->gc, ui_id("arena-rung", e->uid), s, e->name);
             if (f)
                 skin_fill(ui_rect(th.x, th.y + th.h - 3, th.w, 3), skin_theme()->accent, 1);
             x += side + 6;
@@ -1223,7 +1233,8 @@ static void feed(App *a, UIRect r)
         const ArenaBeing *b = syn_arena_feed(i);
         float x = r.x + (tw + 10) * (float)i, y = r.y + 30;
         snprintf(s, sizeof s, "%s, named in round %d with %d alive", b->name, b->cycle, b->alive);
-        thumb(a, ui_rect(x + 12, y, side, side), b->gc, ui_id("arena-feed", (uint32_t)(b->cycle * 131 + i)), s);
+        thumb(a, ui_rect(x + 12, y, side, side), b->gc, ui_id("arena-feed", (uint32_t)(b->cycle * 131 + i)), s,
+              b->name);
         skin_text(fo->small_bold, skin_fit(fo->small_bold, b->name, tw, fit, sizeof fit), x + tw / 2, y + side + 3,
                   TONE_TEXT, ALIGN_CENTER);
         snprintf(s, sizeof s, "round %d", b->cycle);
@@ -1656,7 +1667,8 @@ static void tree_view(App *a, UIRect area)
         if (side >= 24) {
             snprintf(s, sizeof s, "%s, level %d, %s: click for the laboratory", e->name, e->level,
                      e->state == ENTRY_IN ? "in the running" : "out");
-            thumb(a, ui_rect(right - side - 2, y - side - 26, side, side), e->gc, ui_id("arena-tree", e->uid), s);
+            thumb(a, ui_rect(right - side - 2, y - side - 26, side, side), e->gc, ui_id("arena-tree", e->uid), s,
+                  e->name);
         }
         if (span >= 70)
             skin_text(fo->small_bold, skin_fit(fo->small_bold, e->name, span - 4, fit, sizeof fit), right - 2,
@@ -1711,7 +1723,8 @@ void syn_arena_frame(App *a, int w, int h)
     x += skin_text(fo->big, "ARENA", x, y, TONE_TEXT, ALIGN_LEFT) + 14;
     skin_text(fo->body, SIM_TITLE, x, y + 9, TONE_MUTED, ALIGN_LEFT);
     UIRect back = {right - 110, y, 110, 36};
-    UIRect print = {back.x - 8 - 180, y, 180, 36};
+    UIRect lib = {back.x - 8 - 120, y, 120, 36};
+    UIRect print = {lib.x - 8 - 180, y, 180, 36};
     const char *go_label = running ? "STOP" : "START BATTLES";
     float gw = fmaxf(120, skin_text_width(fo->bold, go_label) + 40);
     UIRect go = {print.x - 8 - gw, y, gw, 36};
@@ -1733,6 +1746,13 @@ void syn_arena_frame(App *a, int w, int h)
         print_winners();
     if (over(print))
         ui_tooltip("The ladder into a folder here: each being's .bgg, a list and a picture of the highest");
+    if (button(lib, "LIBRARY", false, true)) {
+        syn_library_open_from(SYNOS_ARENA);
+        synos_set_screen(SYNOS_LIBRARY);
+        return;
+    }
+    if (over(lib))
+        ui_tooltip("The being library: beings kept from earlier, to put on the ladder");
     if (button(back, "BACK", false, true)) {
         synos_set_screen(SYNOS_MENU);
         return;

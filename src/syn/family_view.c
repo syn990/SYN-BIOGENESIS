@@ -30,6 +30,7 @@
 #include "syn/batch.h"
 #include "syn/family.h"
 #include "syn/history.h"
+#include "syn/library_screen.h"
 #include "syn/palette.h"
 #include "syn/stats_screen.h"
 #include "synos/synos.h"
@@ -1176,8 +1177,9 @@ void syn_family_view(App *a, UIRect area, bool keys)
         }
         if (ui_pressed(sdl(c), 3)) {
             V.focus = s->id;
-            const char *items[] = {"Open in the laboratory", "Copy genetic code", "Follow its parent"};
-            ui_popup_open(pop, mx, my, items, NULL, 3);
+            const char *items[] = {"Open in the laboratory", "Copy genetic code", "Follow its parent",
+                                   "Keep in the library"};
+            ui_popup_open(pop, mx, my, items, NULL, 4);
         }
     } else if (in && ui_pressed(sdl(c), 1)) {
         V.drag = true;
@@ -1194,8 +1196,16 @@ void syn_family_view(App *a, UIRect area, bool keys)
         else if (got == 1 && fs->gc) {
             app_set_clipboard(a, fs->gc);
             app_set_status(a, "Genetic code copied");
-        } else if (got == 2 && fs->parent)
+        } else if (got == 2 && fs->parent) {
             syn_family_focus(fs->parent);
+        } else if (got == 3 && fs->gc) {
+            char nm[64], plan[160], origin[200];
+            syn_family_name(fs, nm, sizeof nm);
+            syn_family_plan(fs->gc, plan, sizeof plan);
+            snprintf(origin, sizeof origin, "the family tree: species %.40s, born at time %lld; %.100s", nm,
+                     (long long)fs->born, plan);
+            syn_library_keep(a, fs->gc, "Saved", nm, origin);
+        }
     }
     if (V.drag) {
         if (ui_mouse_down(1)) {

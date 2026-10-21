@@ -31,6 +31,8 @@
 
 #include "io/bgg.h"
 #include "sim/params.h"
+#include "syn/library_screen.h"
+#include "synos/synos.h"
 #include "ui/app.h"
 
 /* LabWindow's reaction columns, in its order, as indices into LabGene's
@@ -406,5 +408,9 @@ void lab_draw(App *a)
     }
     if (ui_button(ui_id("lab_import", 0), (SDL_Rect){bx + 380, by, 100, rh}, "Import...", true))
         filedlg_open(a, FD_IMPORT_LAB, false, "bgg", a->last_dir_genes);
+    /* SYN-OS's: the code into the being library */
+    if (synos_active() &&
+        ui_button(ui_id("lab_keep", 0), (SDL_Rect){bx + 490, by, 100, rh}, "Keep", l->ngenes > 0))
+        syn_library_keep(a, make_code(l), "Saved", "LABORATORY", "the genetic laboratory");
     ui_window_end();
 }

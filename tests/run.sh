@@ -17,6 +17,7 @@ case $(uname -s) in *_NT-*) sep=';' ;; *) sep=: ;; esac
 
 tests/sim_check "$tmp" || status=1
 tests/telescope_check || status=1
+mkdir -p "$tmp/library" && tests/library_check "$tmp/library" || status=1
 ./syn-biogenesis --headless --defaults --quiet --seed 3 --frames 1500 \
 	--save "$tmp/fuzz.bgw" && tests/bgw_fuzz "$tmp/fuzz.bgw" 800 || status=1
 

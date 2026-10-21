@@ -38,10 +38,12 @@
 #include "host.h"
 #include "syn/arena.h"
 #include "syn/arena_screen.h"
+#include "syn/library_screen.h"
 #include "syn/genesis_screen.h"
 #include "syn/history.h"
 #include "syn/sidecar.h"
 #include "syn/stats_screen.h"
+#include "syn/telescope_screen.h"
 #include "syn/syn.h"
 #include "synos/synos.h"
 #endif
@@ -252,6 +254,7 @@ static const char *dir_for(App *a, FilePurpose p)
     case FD_OPEN_WORLD:
     case FD_SAVE_WORLD:
     case FD_SAVE_WORLD_THEN_QUIT:
+    case FD_TELESCOPE_WORLD:
         return a->last_dir_world;
     case FD_SAVE_IMAGE:
         return a->last_dir_image;
@@ -347,6 +350,14 @@ static void do_file_action(App *a, FilePurpose purpose, const char *path)
         }
         break;
     }
+#ifdef BIO_SYN_EDITION
+    case FD_LIBRARY_IMPORT:
+        syn_library_imported(a, path);
+        break;
+    case FD_TELESCOPE_WORLD:
+        syn_telescope_chosen(a, path);
+        break;
+#endif
     case FD_EXPORT_GENES:
         if (a->pending_gc && !bgg_write(path, a->pending_gc))
             msgbox_open(a, MB_INFO, "Write error", "This file can't be written");
@@ -590,6 +601,7 @@ typedef enum {
     A_FIT,
     A_FAMILY, /* the selected organism's species, in the family tree */
     A_MINIMAP,
+    A_KEEP, /* the selected organism's code into the being library */
     A_LOOK, /* A_LOOK + a Look */
     A_LOOK_LAST = A_LOOK + LOOK_COUNT - 1,
 #endif
@@ -851,6 +863,17 @@ static void do_action(App *a, Action act)
     case A_MINIMAP:
         syn_set_minimap(!syn_minimap());
         break;
+    case A_KEEP:
+        if (b) {
+            char sp[64], origin[200];
+            syn_stats_species(b, sp, sizeof sp);
+            const char *f = strrchr(a->game_file, '/');
+            snprintf(origin, sizeof origin, "%.120s, organism %d at time %lld",
+                     a->game_file[0] ? (f ? f + 1 : a->game_file) : "a new world", b->id,
+                     (long long)a->world.stats.time);
+            syn_library_keep(a, b->gc, "Saved", sp[0] ? sp : "ORGANISM", origin);
+        }
+        break;
     default:
         if (act >= A_LOOK && act <= A_LOOK_LAST)
             syn_set_look((Look)(act - A_LOOK));
@@ -908,6 +931,24 @@ static const MenuItem menu_alive[] = {{"Track", A_TRACK},
                                       {"Export...", A_EXPORT},
                                       {"Save image...", A_SAVE_IMAGE}};
 static const MenuItem menu_dead[] = {{"Revive", A_REVIVE}, {"Disperse", A_DISPERSE}};
+#ifdef BIO_SYN_EDITION
+/* SYN-OS's: the same, and keeping it in the being library */
+static const MenuItem synos_alive[] = {{"Track", A_TRACK},
+                                       {"Feed", A_FEED},
+                                       {"Weaken", A_WEAKEN},
+                                       {"Force reproduction", A_REPRODUCE},
+                                       {"Rejuvenate", A_REJUVENATE},
+                                       {"Kill", A_KILL},
+                                       {"Copy", A_COPY},
+                                       {"Export...", A_EXPORT},
+                                       {"Keep in the library", A_KEEP},
+                                       {"Save image...", A_SAVE_IMAGE}};
+#define ALIVE_MENU (synos_active() ? synos_alive : menu_alive)
+#define ALIVE_ITEMS (synos_active() ? 10 : 9)
+#else
+#define ALIVE_MENU menu_alive
+#define ALIVE_ITEMS 9
+#endif
 static const MenuItem menu_void[] = {
     {"Paste", A_PASTE}, {"Create randomly", A_CREATE_RANDOM}, {"Import...", A_IMPORT}};
 
@@ -1192,7 +1233,7 @@ static void world_mouse(App *a)
         if (b) {
             a->selected = b;
             if (b->alive)
-                open_menu(a, pop, mx, my, menu_alive, 9);
+                open_menu(a, pop, mx, my, ALIVE_MENU, ALIVE_ITEMS);
             else
                 open_menu(a, pop + 1, mx, my, menu_dead, 2);
         } else {
@@ -1201,7 +1242,7 @@ static void world_mouse(App *a)
     }
     int got;
     if ((got = ui_popup_take(pop)) >= 0)
-        do_action(a, menu_alive[got].act);
+        do_action(a, ALIVE_MENU[got].act);
     if ((got = ui_popup_take(pop + 1)) >= 0)
         do_action(a, menu_dead[got].act);
     if ((got = ui_popup_take(pop + 2)) >= 0)
@@ -1311,7 +1352,7 @@ static Action synos_info_panel(App *a, int H)
     const Fonts *fo = synos_fonts();
     Organism *o = a->selected;
     Action act = A_NONE;
-    SDL_Rect r = {16, H - 16 - 178, 750, 178};
+    SDL_Rect r = {16, H - 16 - 178, 838, 178};
     ui_layer_begin(ui_id("syninfo", 0), r, false);
     skin_panel(synos_rect(r), true);
     int by = r.y + r.h - 14 - 28;
@@ -1357,6 +1398,7 @@ static Action synos_info_panel(App *a, int H)
         {NULL, "Kill", "Kill organism", A_KILL},       {NULL, "Copy", "Copy genetic code", A_COPY},
         {NULL, "Image", "Save image", A_SAVE_IMAGE},   {NULL, "Track", "Track organism", A_TRACK},
         {NULL, "Family", "Its species in the family tree", A_FAMILY},
+        {NULL, "Keep", "Keep its genetic code in the being library", A_KEEP},
     };
     static const Tool dead[] = {
         {NULL, "Revive", "Revive organism", A_REVIVE},
@@ -1364,7 +1406,7 @@ static Action synos_info_panel(App *a, int H)
         {NULL, "Family", "Its species in the family tree", A_FAMILY},
     };
     const Tool *t = o->alive ? alive : dead;
-    int n = o->alive ? 7 : 3;
+    int n = o->alive ? 8 : 3;
     int bx = (int)x0;
     for (int i = 0; i < n; i++) {
         const char *label = t[i].act == A_TRACK && a->tracked == o ? "Untrack" : t[i].label;
@@ -1443,6 +1485,13 @@ static Action synos_frame(App *a, int W, int H, bool keys)
         case SYNOS_OPEN_ARENA:
             synos_set_screen(SYNOS_ARENA);
             break;
+        case SYNOS_OPEN_LIBRARY:
+            syn_library_open_from(SYNOS_MENU);
+            synos_set_screen(SYNOS_LIBRARY);
+            break;
+        case SYNOS_OPEN_TELESCOPE:
+            synos_set_screen(SYNOS_TELESCOPE);
+            break;
         case SYNOS_QUIT:
             act = A_QUIT;
             break;
@@ -1456,6 +1505,10 @@ static Action synos_frame(App *a, int W, int H, bool keys)
         syn_stats_frame(a, W, H);
     } else if (scr == SYNOS_ARENA) {
         syn_arena_frame(a, W, H);
+    } else if (scr == SYNOS_LIBRARY) {
+        syn_library_frame(a, W, H);
+    } else if (scr == SYNOS_TELESCOPE) {
+        syn_telescope_frame(a, W, H);
     } else {
         Action t = synos_top_bar(a, W);
         if (t != A_NONE)
@@ -1599,7 +1652,8 @@ static void frame(App *a)
 #ifdef BIO_SYN_EDITION
     /* the SYN-OS main menu and options hide the world's windows until it is back */
     if (!synos || synos_screen() == SYNOS_WORLD || synos_screen() == SYNOS_STATS ||
-        synos_screen() == SYNOS_ARENA) {
+        synos_screen() == SYNOS_ARENA || synos_screen() == SYNOS_LIBRARY ||
+        synos_screen() == SYNOS_TELESCOPE) {
 #endif
     stats_draw(a);
     lab_draw(a);
@@ -1942,7 +1996,7 @@ int app_run(void)
         shot_prepare(a, getenv("SYN_BIOGENESIS_SHOT_UI"));
 #ifdef BIO_SYN_EDITION
         /* SYN_BIOGENESIS_SHOT_SCREEN = menu | options | world (the default
-         * with a window or a selection) | stats | arena */
+         * with a window or a selection) | stats | arena | library | telescope */
         const char *scr = getenv("SYN_BIOGENESIS_SHOT_SCREEN");
         if (scr ? !strcmp(scr, "world") : getenv("SYN_BIOGENESIS_SHOT_UI") != NULL) {
             synos_set_screen(SYNOS_WORLD);
@@ -1957,6 +2011,14 @@ int app_run(void)
             /* SYN_BIOGENESIS_SHOT_ARENA runs rounds first (syn/arena_screen.h) */
             syn_arena_shot_prepare();
             synos_set_screen(SYNOS_ARENA);
+        } else if (scr && !strcmp(scr, "library")) {
+            /* SYN_BIOGENESIS_SHOT_LIBRARY names the folder, or "ladder" */
+            syn_library_shot_prepare();
+            synos_set_screen(SYNOS_LIBRARY);
+        } else if (scr && !strcmp(scr, "telescope")) {
+            /* SYN_BIOGENESIS_SHOT_TELESCOPE names a saved world to search */
+            syn_telescope_shot_prepare(a);
+            synos_set_screen(SYNOS_TELESCOPE);
         }
 #endif
     }
@@ -2015,6 +2077,8 @@ int app_run(void)
     /* the arena's workers stop with the simulation they run */
     syn_arena_free();
     syn_arena_screen_free();
+    syn_library_screen_free();
+    syn_telescope_screen_free();
 #endif
     wv_free(&a->view);
 #ifdef BIO_SYN_EDITION

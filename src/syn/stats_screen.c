@@ -29,6 +29,7 @@
 #include "syn/family.h"
 #include "syn/family_view.h"
 #include "syn/history.h"
+#include "syn/library_screen.h"
 #include "syn/palette.h"
 #include "synos/synos.h"
 #include "ui/app.h"
@@ -186,6 +187,10 @@ static void code_thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const cha
     else if (pick == 1 && gc) {
         app_set_clipboard(a, gc);
         app_set_status(a, "Genetic code copied");
+    } else if (pick == 2 && gc) {
+        char origin[200];
+        snprintf(origin, sizeof origin, "the statistics: %.170s", tip ? tip : "a record");
+        syn_library_keep(a, gc, "Saved", "CHAMPION", origin);
     }
     if (!gc)
         return;
@@ -217,8 +222,8 @@ static void code_thumb(App *a, UIRect r, GeneticCode *gc, uint32_t id, const cha
         if (ui_pressed(sdl(r), 1))
             open_code(a, gc);
         if (ui_pressed(sdl(r), 3)) {
-            const char *items[] = {"Open in the laboratory", "Copy genetic code"};
-            ui_popup_open(id, g_mx, g_my, items, NULL, 2);
+            const char *items[] = {"Open in the laboratory", "Copy genetic code", "Keep in the library"};
+            ui_popup_open(id, g_mx, g_my, items, NULL, 3);
         }
     }
 }

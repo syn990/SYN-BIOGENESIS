@@ -42,6 +42,8 @@ typedef enum {
     FD_IMPORT_LAB,    /* import a .bgg into the laboratory */
     FD_EXPORT_GENES,
     FD_SAVE_IMAGE,
+    FD_LIBRARY_IMPORT,  /* a .bgg copied into the being library (SYN-OS) */
+    FD_TELESCOPE_WORLD, /* a saved world whose seed the telescope finds (SYN-OS) */
 } FilePurpose;
 
 typedef struct {

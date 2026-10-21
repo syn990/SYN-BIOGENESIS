@@ -26,6 +26,10 @@
 
 #include "sim/params.h"
 #include "ui/app.h"
+#ifdef BIO_SYN_EDITION
+#include "syn/library_screen.h"
+#include "synos/synos.h"
+#endif
 
 /* ColorComboBox order */
 static const int k_lab_colors[GENE_COLORS] = {COL_RED,   COL_GREEN, COL_BLUE,  COL_CYAN,
@@ -197,6 +201,16 @@ void lab_draw(App *a)
         l->ngenes = 0;
     if (ui_button(ui_id("lab_import", 0), (SDL_Rect){bx + 380, by, 100, rh}, "Import...", true))
         filedlg_open(a, FD_IMPORT_LAB, false, "bgg", a->last_dir_genes);
+#ifdef BIO_SYN_EDITION
+    /* SYN-OS's: the code into the being library */
+    if (synos_active() &&
+        ui_button(ui_id("lab_keep", 0), (SDL_Rect){bx + 490, by, 100, rh}, "Keep", l->ngenes > 0)) {
+        GeneticCode *gc = gc_new_from_genes(l->genes, l->ngenes, l->symmetry, l->mirror,
+                                            l->disperse != 0);
+        syn_library_keep(a, gc, "Saved", "LABORATORY", "the genetic laboratory");
+        gc_unref(gc);
+    }
+#endif
     ui_window_end();
     gc_unref(code);
 }

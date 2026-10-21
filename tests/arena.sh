@@ -109,6 +109,16 @@ else
 	echo "FAIL arena: a damaged ladder wasn't set aside"
 	status=1
 fi
+# a being from a .bgg put on the ladder at level 1, named after its file
+if ./syn-biogenesis --arena --board "$tmp/enter.board" --enter docs/being/ultimate.bgg --list \
+	>"$tmp/enter.txt" 2>&1 && grep -q "level 1 *ultimate " "$tmp/enter.txt" &&
+	./syn-biogenesis --arena --board "$tmp/enter.board" --list | grep -q "level 1 *ultimate "; then
+	echo "arena: a being from a .bgg put on the ladder at level 1, and kept there"
+else
+	echo "FAIL arena: a being from a .bgg wasn't put on the ladder"
+	cat "$tmp/enter.txt"
+	status=1
+fi
 # the other simulation's ladder is refused and left exactly as it was
 cp "$tmp/a.board" "$tmp/other.board"
 if ./syn-biogenesis --colour --arena --list --board "$tmp/other.board" >/dev/null 2>"$tmp/other.log"; then
