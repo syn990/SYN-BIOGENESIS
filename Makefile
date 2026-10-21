@@ -185,7 +185,7 @@ tests/library_check$(EXE): tests/library_check.c src/syn/library.c $(SIM_SRC) $(
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # the dice telescope (src/syn/telescope.c) against the generator
-tests/telescope_check$(EXE): tests/telescope_check.c src/syn/telescope.c src/syn/arena_os.c $(SIM_SRC) $(MATH_OBJ)
+tests/telescope_check$(EXE): tests/telescope_check.c src/syn/telescope.c src/syn/arena_os.c src/syn/record.c src/syn/round.c $(SIM_SRC) $(MATH_OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
 # the SYN edition's history (src/syn/history.c) beside the simulation, in

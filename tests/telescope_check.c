@@ -21,6 +21,9 @@
  *    seeds equal mod 2^48 share it.
  * 3. Every gene length and angle the simulation draws cracks back to a set
  *    of states that includes the one it was drawn from.
+ * 4. The count of draws between two states is the jump that joins them,
+ *    and a gene drawn in a running world is found at its place in the
+ *    world's stream.
  */
 #include <inttypes.h>
 #include <stdbool.h>
@@ -122,9 +125,48 @@ int main(void)
     }
     CHECK(tel_crack_length(1.5, (uint64_t[1]){0}, 1) == 0, "a length no gene can have");
 
+    /* 4: draws between states, there and back over the whole period */
+    int counts = 0;
+    uint64_t x = 0x2545f4914f6cULL;
+    for (int i = 0; i < 200; i++) {
+        x = x * 0x9e3779b97f4a7c15ULL + 1;
+        uint64_t from = x & TEL_MASK, n = (x >> 13) & TEL_MASK;
+        if (i < 48)
+            n = 1ULL << i;
+        else if (i < 64)
+            n = (uint64_t)(i - 48);
+        CHECK(tel_draws(from, tel_jump(from, (int64_t)n)) == n,
+              "%" PRIu64 " draws on from 0x%012" PRIx64, n, from);
+        CHECK(tel_draws(tel_jump(from, -(int64_t)n), from) == n,
+              "%" PRIu64 " draws back to 0x%012" PRIx64, n, from);
+        counts += 2;
+    }
+    CHECK(tel_draws(5, 5) == 0, "no draws");
+    CHECK(tel_draws(tel_jump(7, 1), 7) == TEL_MASK, "a draw back is 2^48 - 1 on");
+    {
+        /* a gene drawn after some thousands of draws, cracked from its
+         * length alone and counted from the seed */
+        jr_set_seed(&g_rng, 20261021);
+        uint64_t s0 = g_rng.seed;
+        for (int j = 0; j < 12345; j++)
+            jr_next_boolean(&g_rng);
+        uint64_t before = g_rng.seed;
+        Gene g;
+        gene_randomize_length(&g);
+        uint64_t st[64];
+        int n = tel_crack_length(g.length, st, 64);
+        bool at = false;
+        for (int k = 0; k < n && k < 64; k++)
+            at |= tel_draws(s0, st[k]) == 12345;
+        CHECK(at && tel_draws(s0, before) == 12345, "a gene's place in the stream");
+        CHECK(tel_draws(s0, g_rng.seed) == 12347, "the stream after the gene's two draws");
+        counts += 2;
+    }
+
     if (!failures)
         printf("telescope: %d jumps land where single draws do, seeds as java.util.Random keeps "
-               "them, %d gene draws cracked back to their states (%d candidate state%s at most)\n",
-               jumps, ncrack, most, most == 1 ? "" : "s");
+               "them, %d gene draws cracked back to their states (%d candidate state%s at most), "
+               "%d counts of draws between states\n",
+               jumps, ncrack, most, most == 1 ? "" : "s", counts);
     return failures != 0;
 }

@@ -38,6 +38,8 @@
 #include "syn/arena_os.h"
 #include "syn/family.h"
 #include "syn/history.h"
+#include "syn/record.h"
+#include "syn/round.h"
 
 
 #ifdef BIO_COLOUR
@@ -245,16 +247,6 @@ static double now_s(void)
     return arena_os_now();
 }
 
-static uint64_t fnv(uint64_t h, const void *p, size_t n)
-{
-    const unsigned char *b = p;
-    for (size_t i = 0; i < n; i++) {
-        h ^= b[i];
-        h *= 0x100000001b3ULL;
-    }
-    return h;
-}
-
 /* ---- codes ---- */
 
 /* its .bgg file's bytes, malloc'd */
@@ -323,65 +315,21 @@ static void drop(GeneticCode *gc)
 
 /* ---- the map ---- */
 
-/* sides of the maps; the first organisms as many to the area as the
- * simulation's default world has */
-#ifdef BIO_COLOUR
-/* Color Mod's worlds fill up: 400 x 400 holds about a thousand */
-static const int k_map_side[MAP_COUNT] = {0, 400, 700, 1000};
-#else
-static const int k_map_side[MAP_COUNT] = {0, 1000, 2000, 3000};
-#endif
-
-static void apply_map(Params *p, int map)
-{
-    if (map <= MAP_PARAMS || map >= MAP_COUNT)
-        return;
-    Params d;
-    memset(&d, 0, sizeof d);
-    params_set_defaults(&d);
-    int s = k_map_side[map];
-    p->world_width = p->world_height = s;
-    p->initial_organisms =
-        (int)lround((double)d.initial_organisms * s * s / ((double)d.world_width * d.world_height));
-    if (p->initial_organisms < 1)
-        p->initial_organisms = 1;
-}
-
 const char *syn_arena_map_name(int map)
 {
     static const char *const k[MAP_COUNT] = {"PARAMETERS", "SMALL", "MEDIUM", "LARGE"};
     return map >= 0 && map < MAP_COUNT ? k[map] : "?";
 }
 
-/* the parameters as a cycle gets them */
-static void cycle_params(Params *q, int map)
-{
-    memcpy(q, &P, sizeof *q);
-    apply_map(q, map);
-}
-
 uint64_t syn_arena_fingerprint(void)
 {
-    Params q;
-    cycle_params(&q, syn_arena_settings()->map);
-    /* what only the window reads */
-    q.window_width = q.window_height = 0;
-    q.delay = 0;
-#ifdef BIO_COLOUR
-    q.window_x = q.window_y = q.window_state = 0;
-    q.auto_backup = false;
-    q.backup_delay = q.local_port = q.max_connections = 0;
-    q.accept_connections = q.connect_to_server = false;
-    q.hardware_acceleration = q.server_port = 0;
-#endif
-    uint64_t h = fnv(0xcbf29ce484222325ULL, &q, sizeof q);
-    return h ? h : 1;
+    return round_fingerprint(syn_arena_settings()->map);
 }
 
 void syn_arena_world(int *w, int *h, int *organisms)
 {
     Params q;
-    cycle_params(&q, syn_arena_settings()->map);
+    round_params(&q, syn_arena_settings()->map);
     *w = q.world_width;
     *h = q.world_height;
     *organisms = q.initial_organisms;
@@ -581,25 +529,10 @@ static void report(int fd, World *w, const Count *c, double fps, const uint32_t 
     free(b.p);
 }
 
-/* A code put in the world as the original pastes one, at a random place:
- * twelve tries, as genesis gives each random organism. */
-static Organism *paste(World *w, GeneticCode *gc)
+static void history_begin(World *w)
 {
-    for (int tries = 12; tries > 0; tries--) {
-        Organism *o = org_new_with_code(w, gc);
-        int x = jr_next_int(&g_rng, w->width), y = jr_next_int(&g_rng, w->height);
-#ifdef BIO_COLOUR
-        bool ok = org_paste_organism(o, x, y);
-#else
-        bool ok = org_paste(o, x, y);
-#endif
-        if (ok) {
-            world_add_organism(w, o, NULL);
-            return o;
-        }
-        org_free(o);
-    }
-    return NULL;
+    w->on_remove = removed;
+    syn_history_reset(w, false);
 }
 
 static Organism *by_org_id(World *w, int id)
@@ -638,45 +571,14 @@ static void run_cycle(int fd, const uint8_t *p, size_t n)
         }
     }
 
-    jr_set_seed(&g_rng, seed);
     syn_family_name_base(base);
     WK.ntold = WK.nfed = WK.nseries = 0;
 
-    /* the random organisms as world_genesis makes them, fewer by the
-     * fighters' share */
+    /* the round's world (syn/round.h), its history begun after genesis */
     World w;
     world_init(&w);
-    int total = P.initial_organisms, per = 0;
-    if (ns > 0) {
-        int nc = (int)lround(total * (100.0 - random_pct) / 100.0);
-        per = nc / ns;
-        if (per < 1)
-            per = 1;
-    }
-    /* none at all for winners only, not the few left over */
-    int nrandom = ns > 0 && random_pct == 0 ? 0 : total - per * ns;
-    if (nrandom < 0)
-        nrandom = 0;
-    P.initial_organisms = nrandom;
-    world_genesis(&w);
-    P.initial_organisms = total;
-    w.on_remove = removed;
-    syn_history_reset(&w, false);
-
-    /* then the fighters, each its own bloodline from its first copy */
     int first[ARENA_SLOTS], placed[ARENA_SLOTS];
-    for (int k = 0; k < ns; k++) {
-        first[k] = -1;
-        placed[k] = 0;
-        for (int i = 0; i < per; i++) {
-            Organism *o = paste(&w, code[k]);
-            if (o) {
-                if (first[k] < 0)
-                    first[k] = o->id;
-                placed[k]++;
-            }
-        }
-    }
+    round_begin(&w, seed, code, ns, random_pct, history_begin, first, placed);
     syn_family_frame(&w);
     uint32_t slot_root[ARENA_SLOTS] = {0};
     for (int k = 0; k < ns; k++) {
@@ -704,6 +606,14 @@ static void run_cycle(int fd, const uint8_t *p, size_t n)
     tally(&w, &c);
     bool can_ko = knockout && c.lines >= 2;
     bool ko = false;
+    /* for the record: the living and the bloodlines once a time unit, and
+     * when one bloodline was left */
+    int t_lone = c.lines == 1 ? 0 : -1;
+    RecordPoint *curve = malloc(((size_t)units + 2) * sizeof *curve);
+    if (!curve)
+        abort();
+    int ncurve = 0;
+    curve[ncurve++] = (RecordPoint){0, c.pop, c.lines};
     double t0 = now_s();
     int64_t frames = (int64_t)units * 256, f = 0;
     while (f < frames) {
@@ -713,6 +623,10 @@ static void run_cycle(int fd, const uint8_t *p, size_t n)
         if (w.nframes != 0)
             continue;
         tally(&w, &c);
+        if (ncurve < units + 2)
+            curve[ncurve++] = (RecordPoint){(int)w.stats.time, c.pop, c.lines};
+        if (t_lone < 0 && c.lines == 1)
+            t_lone = (int)w.stats.time;
         double dt = now_s() - t0;
         report(fd, &w, &c, dt > 0 ? (double)f / dt : 0, slot_root, ns);
         if (c.pop == 0)
@@ -787,6 +701,32 @@ static void run_cycle(int fd, const uint8_t *p, size_t n)
         int i = slot_root[k] ? syn_family_index(slot_root[k]) : -1;
         put_i32(&b, i >= 0 ? WK.rt[i] : 0);
     }
+    /* for the record: the lone bloodline's time, the winning bloodline's
+     * genesis being (the code its root began the round with), and the
+     * curve, at most REC_CURVE points of it evenly through the round */
+    put_i32(&b, t_lone);
+    const Species *root = win >= 0 ? syn_family_at(win) : NULL;
+    size_t gn = 0;
+    uint8_t *gbytes = root && root->gc ? code_bytes(root->gc, &gn) : NULL;
+    char gname[48] = "", gplan[200] = "";
+    if (root) {
+        syn_family_label(root, gname, sizeof gname);
+        if (root->gc)
+            syn_family_plan(root->gc, gplan, sizeof gplan);
+    }
+    put_str(&b, gname);
+    put_str(&b, gplan);
+    put_blob(&b, gbytes, gbytes ? gn : 0);
+    free(gbytes);
+    int points = ncurve < REC_CURVE ? ncurve : REC_CURVE;
+    put_u32(&b, (uint32_t)points);
+    for (int i = 0; i < points; i++) {
+        const RecordPoint *q = &curve[points < 2 ? 0 : (int)((int64_t)i * (ncurve - 1) / (points - 1))];
+        put_i32(&b, q->t);
+        put_i32(&b, q->pop);
+        put_i32(&b, q->lines);
+    }
+    free(curve);
     /* test hook: SYN_BIOGENESIS_ARENA_WORLDS=dir keeps each cycle's world
      * as it ended (dir/cycle-N.bgw), to be compared with --headless; saved
      * before the result is told, after which the worker may be stopped */
@@ -846,8 +786,10 @@ typedef struct {
     int level; /* 0: qualifying */
     int64_t seed;
     uint64_t fp;
-    int map, units;
+    int map, units, wild;
+    bool knockout;
     int nslot;
+    int job; /* rebuilding: the round it replays (RB.q) */
     uint32_t slot_uid[ARENA_SLOTS];
     uint32_t slot_root[ARENA_SLOTS];
     double started;
@@ -860,6 +802,7 @@ typedef struct {
 
 static struct {
     bool inited, cli, quiet, board_set, loaded;
+    bool rebuilding; /* the workers replay rounds for the record (syn_arena_rebuild_record) */
     ArenaSettings set;   /* what runs */
     ArenaSettings saved; /* what is kept with the board (the window's) */
     char path[1100];     /* the board ("": none) */
@@ -1341,6 +1284,14 @@ void syn_arena_init(void)
     A.next_uid = 1;
     if (!A.cli && !A.board_set)
         snprintf(A.path, sizeof A.path, "%s/%s", params_config_dir(), BOARD_FILE);
+    /* the record beside the ladder (none without one) */
+    char rp[1200] = "";
+    size_t pl = strlen(A.path);
+    if (pl > 6 && !strcmp(A.path + pl - 6, ".board"))
+        snprintf(rp, sizeof rp, "%.*s.record", (int)(pl - 6), A.path);
+    else if (pl)
+        snprintf(rp, sizeof rp, "%s.record", A.path);
+    syn_record_set_file(rp);
     board_load();
 #ifdef BIO_COLOUR
     jgc_add_marker(arena_mark);
@@ -1459,6 +1410,28 @@ static int pick(int *who, int *n)
     return level;
 }
 
+/* A round's job to a worker: these fighters, in this order. */
+static bool send_job(Worker *k, int cycle, int64_t seed, int units, bool knockout, int wild, int map,
+                     const ArenaEntry *const *f, int nf)
+{
+    Params q;
+    round_params(&q, map);
+    Buf b = {0};
+    put_i32(&b, cycle);
+    put_u64(&b, (uint64_t)seed);
+    put_i32(&b, units);
+    put_i32(&b, (int)((int64_t)cycle * NAME_STEP % 500));
+    put_u8(&b, knockout);
+    put_i32(&b, wild);
+    put_blob(&b, &q, sizeof q);
+    put_u8(&b, (unsigned)nf);
+    for (int d = 0; d < nf; d++)
+        put_blob(&b, f[d]->bgg, f[d]->bgg_n);
+    bool ok = send_msg(k->proc.to, 'J', &b);
+    free(b.p);
+    return ok;
+}
+
 static void dispatch(int lane)
 {
     Worker *k = &A.wk[lane];
@@ -1473,21 +1446,10 @@ static void dispatch(int lane)
     int cycle = ++A.cycles;
     A.given++;
     A.dirty = true;
-    Params q;
-    cycle_params(&q, A.set.map);
-    Buf b = {0};
-    put_i32(&b, cycle);
-    put_u64(&b, (uint64_t)(A.set.seed + cycle));
-    put_i32(&b, A.set.units);
-    put_i32(&b, (int)((int64_t)cycle * NAME_STEP % 500));
-    put_u8(&b, A.set.knockout);
-    put_i32(&b, A.set.wild_pct);
-    put_blob(&b, &q, sizeof q);
-    put_u8(&b, (unsigned)nd);
+    const ArenaEntry *f[ARENA_SLOTS];
     lane_reset(L);
     for (int d = 0; d < nd; d++) {
-        const ArenaEntry *e = &A.e[who[d]];
-        put_blob(&b, e->bgg, e->bgg_n);
+        const ArenaEntry *e = f[d] = &A.e[who[d]];
         k->slot_uid[d] = e->uid;
         k->slot_root[d] = 0;
         snprintf(L->slot_name[d], sizeof L->slot_name[d], "%s", e->name);
@@ -1500,6 +1462,8 @@ static void dispatch(int lane)
     k->fp = syn_arena_fingerprint();
     k->map = A.set.map;
     k->units = A.set.units;
+    k->wild = A.set.wild_pct;
+    k->knockout = A.set.knockout;
     k->busy = true;
     k->started = now_s();
     cache_clear(k);
@@ -1509,9 +1473,8 @@ static void dispatch(int lane)
     L->seed = A.set.seed + cycle;
     L->units = A.set.units;
     L->nslots = nd;
-    if (!send_msg(k->proc.to, 'J', &b))
+    if (!send_job(k, cycle, A.set.seed + cycle, A.set.units, A.set.knockout, A.set.wild_pct, A.set.map, f, nd))
         k->busy = L->busy = false; /* it died: read as such */
-    free(b.p);
 }
 
 static void sample_add(ArenaLane *L, const ArenaSample *s)
@@ -1556,45 +1519,95 @@ static void result_add(const ArenaResult *r)
 }
 
 /* the ladder told of a round's end: who goes up, who is out */
+/* what a worker tells at a round's end (run_cycle's 'R') */
+typedef struct {
+    int cycle, t_end, pop, lines;
+    bool ko, won, own;
+    uint64_t frames;
+    int slot, line_alive, alive;
+    char name[40], line[40], plan[160];
+    const uint8_t *bp, *gp; /* the final and genesis beings' .bgg files */
+    size_t bn, gn;
+    int nsl;
+    int slot_alive[ARENA_SLOTS];
+    RecordRound rec; /* the lone bloodline's time, the genesis being's names, the curve */
+} Told;
+
+static void read_told(Rd *r, Told *t)
+{
+    memset(t, 0, sizeof *t);
+    t->slot = -1;
+    t->cycle = get_i32(r);
+    t->t_end = get_i32(r);
+    t->pop = get_i32(r);
+    t->lines = get_i32(r);
+    t->ko = get_u8(r) != 0;
+    t->frames = get_u64(r);
+    t->won = get_u8(r) != 0;
+    if (t->won) {
+        t->slot = get_i32(r);
+        t->own = get_u8(r) != 0;
+        t->line_alive = get_i32(r);
+        t->alive = get_i32(r);
+        get_str(r, t->name, sizeof t->name);
+        get_str(r, t->line, sizeof t->line);
+        get_str(r, t->plan, sizeof t->plan);
+        t->bp = get_blob(r, &t->bn);
+    }
+    t->nsl = (int)get_u8(r);
+    for (int j = 0; j < t->nsl; j++) {
+        int v = get_i32(r);
+        if (j < ARENA_SLOTS)
+            t->slot_alive[j] = v;
+    }
+    RecordRound *rec = &t->rec;
+    rec->t_lone = get_i32(r);
+    get_str(r, rec->gname, sizeof rec->gname);
+    get_str(r, rec->gplan, sizeof rec->gplan);
+    t->gp = get_blob(r, &t->gn);
+    uint32_t nc = get_u32(r);
+    for (uint32_t j = 0; j < nc && !r->bad; j++) {
+        RecordPoint q;
+        q.t = get_i32(r);
+        q.pop = get_i32(r);
+        q.lines = get_i32(r);
+        if (rec->ncurve < REC_CURVE)
+            rec->curve[rec->ncurve++] = q;
+    }
+}
+
+static void on_rebuilt(int lane, Rd *r);
+
 static void on_result(int lane, Rd *r)
 {
     Worker *k = &A.wk[lane];
     ArenaLane *L = &A.lane[lane];
+    Told *t = malloc(sizeof *t);
+    if (!t)
+        abort();
+    read_told(r, t);
     ArenaResult res = {0};
-    res.cycle = get_i32(r);
-    res.t_end = get_i32(r);
-    int pop = get_i32(r);
-    int lines = get_i32(r);
-    res.knockout = get_u8(r) != 0;
-    uint64_t frames = get_u64(r);
-    bool won = get_u8(r) != 0;
-    int slot = -1, line_alive = 0, alive = 0;
-    bool own = false;
-    char name[40] = "", line[40] = "", plan[160] = "";
-    const uint8_t *bp = NULL;
-    size_t bn = 0;
-    if (won) {
-        slot = get_i32(r);
-        own = get_u8(r) != 0;
-        line_alive = get_i32(r);
-        alive = get_i32(r);
-        get_str(r, name, sizeof name);
-        get_str(r, line, sizeof line);
-        get_str(r, plan, sizeof plan);
-        bp = get_blob(r, &bn);
-    }
-    int nsl = (int)get_u8(r);
-    for (int j = 0; j < nsl && j < ARENA_SLOTS; j++)
-        L->slot_alive[j] = get_i32(r);
+    res.cycle = t->cycle;
+    res.t_end = t->t_end;
+    res.knockout = t->ko;
+    int pop = t->pop, lines = t->lines, slot = t->slot, line_alive = t->line_alive, alive = t->alive;
+    uint64_t frames = t->frames;
+    bool won = t->won, own = t->own;
+    const char *name = t->name, *line = t->line, *plan = t->plan;
+    const uint8_t *bp = t->bp, *gp = t->gp;
+    size_t bn = t->bn, gn = t->gn;
+    RecordRound *rec = &t->rec;
+    for (int j = 0; j < t->nsl && j < ARENA_SLOTS; j++)
+        L->slot_alive[j] = t->slot_alive[j];
     L->busy = false;
     if (r->bad || res.cycle != k->cycle || slot >= k->nslot) {
         k->busy = false;
         fprintf(stderr, "arena: round %d's result couldn't be read\n", k->cycle);
+        free(t);
         return;
     }
     A.done++;
     A.frames += (double)frames;
-    (void)lines;
     if (A.est_fp != k->fp || A.est_units != k->units) {
         A.est_fp = k->fp;
         A.est_units = k->units;
@@ -1681,6 +1694,46 @@ static void on_result(int lane, Rd *r)
     A.rank_dirty = true;
     A.dirty = true;
     result_add(&res);
+
+    /* the round, for good */
+    rec->source = REC_LIVE;
+    rec->when = (int64_t)time(NULL);
+    rec->cycle = res.cycle;
+    rec->level = res.level;
+    rec->outcome = res.outcome;
+    rec->seed = k->seed;
+    rec->settings = k->fp;
+    rec->map = k->map;
+    rec->units = k->units;
+    rec->knockout = k->knockout;
+    rec->wild = k->wild;
+    rec->t_end = res.t_end;
+    rec->pop = pop;
+    rec->lines = lines;
+    rec->share = res.share;
+    rec->nf = k->nslot < REC_FIGHTERS ? k->nslot : REC_FIGHTERS;
+    for (int d = 0; d < rec->nf; d++) {
+        const ArenaEntry *fe = find(k->slot_uid[d]);
+        rec->f[d].uid = k->slot_uid[d];
+        snprintf(rec->f[d].name, sizeof rec->f[d].name, "%s", L->slot_name[d]);
+        rec->f[d].alive = L->slot_alive[d];
+        rec->f[d].bgg = fe ? fe->bgg : NULL;
+        rec->f[d].bgg_n = fe ? fe->bgg_n : 0;
+    }
+    rec->uid = res.uid;
+    if (won) {
+        /* the fighter itself went up: by its name on the ladder */
+        snprintf(rec->name, sizeof rec->name, "%s", res.outcome == OUT_ADVANCED && up ? up->name : name);
+        snprintf(rec->line, sizeof rec->line, "%s", up ? up->line : line);
+        snprintf(rec->plan, sizeof rec->plan, "%s", plan);
+    }
+    /* a fighter's bloodline began the round as the fighter */
+    const ArenaEntry *fw = winner ? find(winner) : NULL;
+    if (fw) {
+        snprintf(rec->gname, sizeof rec->gname, "%s", fw->name);
+        snprintf(rec->gplan, sizeof rec->gplan, "%s", fw->plan);
+    }
+    syn_record_add(rec, won ? bp : NULL, won ? bn : 0, gp, gn);
     if (A.cli && !A.quiet) {
         char what[300], where[24];
         const ArenaEntry *par = up && up->parent ? find(up->parent) : NULL;
@@ -1700,6 +1753,7 @@ static void on_result(int lane, Rd *r)
         printf("round %5d  %-10s  t %5d%s  %s\n", res.cycle, where, res.t_end, res.knockout ? " KO" : "   ", what);
         fflush(stdout);
     }
+    free(t);
 }
 
 static void on_msg(int lane, int type, Rd *r)
@@ -1774,7 +1828,10 @@ static void on_msg(int lane, int type, Rd *r)
         break;
     }
     case 'R':
-        on_result(lane, r);
+        if (A.rebuilding)
+            on_rebuilt(lane, r);
+        else
+            on_result(lane, r);
         break;
     default:
         break;
@@ -2013,6 +2070,281 @@ void syn_arena_free(void)
     for (int i = 0; i < ARENA_FEED; i++)
         hold(&A.feed[i].gc, NULL);
     memset(&A, 0, sizeof A);
+    syn_record_free();
+}
+
+/* ---- the record from before it: rounds rebuilt from the ladder ---- */
+
+/* A round from before the record, as the ladder remembers it: the being
+ * it put on the ladder, and its fighters, those knocked out by it (with
+ * the one it is the offspring of). The ladder doesn't say in what order
+ * they were put in the world, nor with what share of newcomers, so a
+ * replay is tried in each order, with the ladder's share of newcomers and
+ * with none; it is the round if it ends with the very being the ladder
+ * kept. */
+typedef struct {
+    int entry; /* in A.e, which nothing is added to while rebuilding */
+    int nf;
+    int f[ARENA_SLOTS];
+    int outcome, level;
+    int tries, wilds, wild[2];
+} Rebuild;
+
+static struct {
+    Rebuild *q;
+    int n;
+    int *todo; /* rounds to give, the next last */
+    int ntodo;
+    int replayed, ladder;
+} RB;
+
+static int rebuild_tries(const Rebuild *j)
+{
+    return (j->nf >= 2 ? 2 : 1) * j->wilds;
+}
+
+/* a round as the ladder alone has it */
+static void rebuild_from_ladder(const Rebuild *j)
+{
+    const ArenaEntry *e = &A.e[j->entry];
+    RecordRound rec;
+    memset(&rec, 0, sizeof rec);
+    rec.source = REC_LADDER;
+    rec.cycle = e->cycle;
+    rec.level = j->level;
+    rec.outcome = j->outcome;
+    rec.seed = e->seed;
+    rec.settings = e->settings;
+    rec.map = e->map;
+    rec.t_end = e->t_end;
+    rec.t_lone = -1;
+    rec.pop = e->pop;
+    rec.lines = -1;
+    rec.share = e->share;
+    rec.nf = j->nf;
+    for (int d = 0; d < j->nf; d++) {
+        const ArenaEntry *f = &A.e[j->f[d]];
+        rec.f[d].uid = f->uid;
+        snprintf(rec.f[d].name, sizeof rec.f[d].name, "%s", f->name);
+        rec.f[d].alive = -1;
+        rec.f[d].bgg = f->bgg;
+        rec.f[d].bgg_n = f->bgg_n;
+    }
+    rec.uid = e->uid;
+    snprintf(rec.name, sizeof rec.name, "%s", e->name);
+    snprintf(rec.line, sizeof rec.line, "%s", e->line);
+    snprintf(rec.plan, sizeof rec.plan, "%s", e->plan);
+    /* the offspring of a fighter: its bloodline began as the fighter */
+    const ArenaEntry *par = e->parent ? find(e->parent) : NULL;
+    if (par) {
+        snprintf(rec.gname, sizeof rec.gname, "%s", par->name);
+        snprintf(rec.gplan, sizeof rec.gplan, "%s", par->plan);
+    }
+    syn_record_add(&rec, e->bgg, e->bgg_n, par ? par->bgg : NULL, par ? par->bgg_n : 0);
+    RB.ladder++;
+}
+
+static void rebuild_give(int lane)
+{
+    Worker *k = &A.wk[lane];
+    while (RB.ntodo && k->up && !k->busy) {
+        int ji = RB.todo[--RB.ntodo];
+        Rebuild *j = &RB.q[ji];
+        const ArenaEntry *e = &A.e[j->entry];
+        int orders = j->nf >= 2 ? 2 : 1;
+        int order = j->tries % orders, wild = j->wild[j->tries / orders];
+        const ArenaEntry *f[ARENA_SLOTS];
+        for (int d = 0; d < j->nf; d++)
+            f[d] = &A.e[j->f[order ? j->nf - 1 - d : d]];
+        j->tries++;
+        k->job = ji;
+        k->cycle = e->cycle;
+        k->nslot = j->nf;
+        for (int d = 0; d < j->nf; d++)
+            k->slot_uid[d] = f[d]->uid;
+        k->busy = true;
+        k->started = now_s();
+        cache_clear(k);
+        lane_reset(&A.lane[lane]);
+        /* as long as it ran: what a round ends with doesn't depend on
+         * when it would have stopped, only on when it did */
+        if (!send_job(k, e->cycle, e->seed, e->t_end, false, wild, e->map, f, j->nf)) {
+            k->busy = false;
+            RB.todo[RB.ntodo++] = ji;
+            j->tries--;
+            break;
+        }
+    }
+}
+
+static void on_rebuilt(int lane, Rd *r)
+{
+    Worker *k = &A.wk[lane];
+    k->busy = false;
+    Rebuild *j = &RB.q[k->job];
+    const ArenaEntry *e = &A.e[j->entry];
+    Told *t = malloc(sizeof *t);
+    if (!t)
+        abort();
+    read_told(r, t);
+    bool same = !r->bad && t->won && t->cycle == e->cycle && t->bn == e->bgg_n &&
+                !memcmp(t->bp, e->bgg, e->bgg_n);
+    if (!same) {
+        if (j->tries < rebuild_tries(j))
+            RB.todo[RB.ntodo++] = k->job;
+        else
+            rebuild_from_ladder(j);
+        free(t);
+        return;
+    }
+    RecordRound *rec = &t->rec;
+    rec->source = REC_REPLAYED;
+    rec->cycle = e->cycle;
+    rec->level = j->level;
+    rec->outcome = j->outcome;
+    rec->seed = e->seed;
+    rec->settings = e->settings;
+    rec->map = e->map;
+    int orders = j->nf >= 2 ? 2 : 1;
+    rec->wild = j->nf ? j->wild[(j->tries - 1) / orders] : 0;
+    rec->t_end = t->t_end;
+    rec->pop = t->pop;
+    rec->lines = t->lines;
+    rec->share = t->pop > 0 ? (float)t->line_alive / (float)t->pop : 0;
+    rec->nf = k->nslot;
+    for (int d = 0; d < k->nslot; d++) {
+        const ArenaEntry *f = find(k->slot_uid[d]);
+        rec->f[d].uid = k->slot_uid[d];
+        snprintf(rec->f[d].name, sizeof rec->f[d].name, "%s", f ? f->name : "?");
+        rec->f[d].alive = t->slot_alive[d];
+        rec->f[d].bgg = f ? f->bgg : NULL;
+        rec->f[d].bgg_n = f ? f->bgg_n : 0;
+    }
+    rec->uid = e->uid;
+    snprintf(rec->name, sizeof rec->name, "%s", e->name);
+    snprintf(rec->line, sizeof rec->line, "%s", e->line);
+    snprintf(rec->plan, sizeof rec->plan, "%s", e->plan);
+    const ArenaEntry *fw = t->slot >= 0 && t->slot < k->nslot ? find(k->slot_uid[t->slot]) : NULL;
+    if (fw) {
+        snprintf(rec->gname, sizeof rec->gname, "%s", fw->name);
+        snprintf(rec->gplan, sizeof rec->gplan, "%s", fw->plan);
+    }
+    syn_record_add(rec, t->bp, t->bn, t->gp, t->gn);
+    RB.replayed++;
+    free(t);
+}
+
+int syn_arena_rebuild_record(int workers)
+{
+    syn_arena_init();
+    syn_record_init();
+    RB.q = calloc((size_t)(A.n ? A.n : 1), sizeof *RB.q);
+    RB.todo = malloc((size_t)(A.n ? A.n : 1) * sizeof *RB.todo);
+    if (!RB.q || !RB.todo)
+        abort();
+    int qual = 0, rounds = 0, recorded = 0, other = 0;
+    for (int i = 0; i < A.n; i++) {
+        const ArenaEntry *e = &A.e[i];
+        /* put on the ladder by hand (TO THE ARENA, --enter): no round */
+        if (e->t_end == 0 && e->seed == 0)
+            continue;
+        if (syn_record_has(e->seed, e->cycle)) {
+            recorded++;
+            continue;
+        }
+        Rebuild *j = &RB.q[RB.n];
+        j->entry = i;
+        j->level = e->start - 1;
+        j->outcome = e->parent ? OUT_EVOLVED : e->start == 1 ? OUT_QUALIFIED : OUT_UPSET;
+        /* its fighters, by the order they came on the ladder */
+        for (int m = 0; m < A.n && j->nf < ARENA_SLOTS; m++)
+            if (A.e[m].by == e->uid && A.e[m].last == e->cycle)
+                j->f[j->nf++] = m;
+        j->wild[0] = A.saved.wild_pct;
+        j->wilds = 1;
+        if (A.saved.wild_pct != 0)
+            j->wild[j->wilds++] = 0;
+        RB.n++;
+        if (e->settings != round_fingerprint(e->map) || (j->level > 0 && !j->nf)) {
+            /* other parameters than these, or its fighters unknown */
+            rebuild_from_ladder(j);
+            other++;
+            continue;
+        }
+        qual += j->level == 0;
+        rounds++;
+        RB.todo[RB.ntodo++] = RB.n - 1;
+    }
+    /* the earliest first */
+    for (int a = 0, b = RB.ntodo - 1; a < b; a++, b--) {
+        int x = RB.todo[a];
+        RB.todo[a] = RB.todo[b];
+        RB.todo[b] = x;
+    }
+    printf("the record: %d round%s in it already; from the ladder, %d round%s to replay (%d qualifying), "
+           "%d read from it alone (other parameters, or fighters it no longer has)\n",
+           recorded, recorded == 1 ? "" : "s", rounds, rounds == 1 ? "" : "s", qual, other);
+    fflush(stdout);
+    A.rebuilding = true;
+    A.nlanes = workers < 1 ? 1 : workers > ARENA_LANES ? ARENA_LANES : workers;
+    char err[200] = "";
+    int up = 0;
+    for (int i = 0; i < A.nlanes; i++)
+        up += spawn(i, err, sizeof err);
+    if (!up && RB.ntodo) {
+        fprintf(stderr, "arena: %s\n", err);
+        A.rebuilding = false;
+        return 1;
+    }
+    double t0 = now_s(), shown = t0;
+    int total = RB.ntodo;
+    for (;;) {
+        bool busy = false;
+        int from[ARENA_LANES], np = 0;
+        for (int i = 0; i < A.nlanes; i++) {
+            rebuild_give(i);
+            busy |= A.wk[i].busy;
+            if (A.wk[i].up)
+                from[np++] = A.wk[i].proc.from;
+        }
+        if (!busy && !RB.ntodo)
+            break;
+        if (!np)
+            break;
+        arena_os_wait(from, np, 500);
+        for (int i = 0; i < A.nlanes; i++) {
+            bool changed = false;
+            if (A.wk[i].up && !pump(i, &changed)) {
+                /* it died: its round goes back, and another takes its place */
+                if (A.wk[i].busy) {
+                    Rebuild *j = &RB.q[A.wk[i].job];
+                    if (j->tries < rebuild_tries(j))
+                        RB.todo[RB.ntodo++] = A.wk[i].job;
+                    else
+                        rebuild_from_ladder(j);
+                }
+                worker_end(i);
+                if (++A.respawns <= 8)
+                    spawn(i, err, sizeof err);
+            }
+        }
+        if (now_s() - shown > 10) {
+            shown = now_s();
+            printf("  %d replayed, %d from the ladder alone, %d to go (%.0f s)\n", RB.replayed, RB.ladder,
+                   RB.ntodo, shown - t0);
+            fflush(stdout);
+        }
+    }
+    for (int i = 0; i < A.nlanes; i++)
+        worker_end(i);
+    A.rebuilding = false;
+    printf("the record: %d round%s replayed from their seeds to the very being the ladder kept, %d read "
+           "from the ladder alone, in %.0f s (%d given)\n",
+           RB.replayed, RB.replayed == 1 ? "" : "s", RB.ladder, now_s() - t0, total);
+    free(RB.q);
+    free(RB.todo);
+    memset(&RB, 0, sizeof RB);
+    return 0;
 }
 
 /* ---- printing the winners ---- */
@@ -2121,6 +2453,54 @@ static void list_board(int top)
     }
 }
 
+/* the record, a round a line, then what it adds up to */
+static void list_record(void)
+{
+    syn_record_init();
+    int n = syn_record_count();
+    int by_outcome[OUT_KINDS] = {0}, lone = 0, same = 0, known = 0, src[3] = {0};
+    int64_t lone_sum = 0;
+    printf("record (%d round%s):\n", n, n == 1 ? "" : "s");
+    for (int i = 0; i < n; i++) {
+        const RecordRound *r = syn_record_at(i);
+        char where[24], ch[24] = "";
+        if (r->level)
+            snprintf(where, sizeof where, "level %d", r->level);
+        else
+            snprintf(where, sizeof where, "qualifying");
+        int d = syn_record_changes(r);
+        if (d >= 0) {
+            snprintf(ch, sizeof ch, "%d change%s", d, d == 1 ? "" : "s");
+            known++;
+            same += d == 0;
+        }
+        char lone_s[16] = "-";
+        if (r->t_lone >= 0) {
+            snprintf(lone_s, sizeof lone_s, "%d", r->t_lone);
+            lone++;
+            lone_sum += r->t_lone;
+        }
+        if (r->outcome >= 0 && r->outcome < OUT_KINDS)
+            by_outcome[r->outcome]++;
+        if (r->source >= 0 && r->source < 3)
+            src[r->source]++;
+        printf("round %5d  %-10s  %-20s  lone at %-5s t %-5d  %-16s -> %-16s %-11s %3.0f%% of %d%s\n", r->cycle,
+               where, syn_outcome_name(r->outcome), lone_s, r->t_end, r->gname[0] ? r->gname : "?",
+               r->final ? r->name : "none", ch, r->share * 100, r->pop,
+               r->source == REC_REPLAYED ? "  (replayed)" : r->source == REC_LADDER ? "  (from the ladder)" : "");
+    }
+    printf("%d recorded as fought, %d replayed from their seeds, %d from the ladder alone\n", src[REC_LIVE],
+           src[REC_REPLAYED], src[REC_LADDER]);
+    for (int o = 0; o < OUT_KINDS; o++)
+        if (by_outcome[o])
+            printf("  %-20s %d\n", syn_outcome_name(o), by_outcome[o]);
+    if (lone)
+        printf("one bloodline left in %d round%s, at time %.1f on average\n", lone, lone == 1 ? "" : "s",
+               (double)lone_sum / lone);
+    if (known)
+        printf("the final being the genesis being unchanged in %d of %d\n", same, known);
+}
+
 static int parse_map(const char *s)
 {
     for (int m = 0; m < MAP_COUNT; m++)
@@ -2133,7 +2513,7 @@ int syn_arena_main(int argc, char **argv)
 {
     A.cli = true;
     const char *out = NULL, *board = NULL;
-    bool no_board = false, list = false;
+    bool no_board = false, list = false, record = false, rebuild = false;
     const char *enter[16];
     int nenter = 0;
     ArenaSettings o = {0};
@@ -2180,6 +2560,10 @@ int syn_arena_main(int argc, char **argv)
             A.quiet = true;
         } else if (!strcmp(a, "--list")) {
             list = true;
+        } else if (!strcmp(a, "--record")) {
+            record = true;
+        } else if (!strcmp(a, "--rebuild-record")) {
+            rebuild = true;
         } else if (!strcmp(a, "--enter") && v && nenter < 16) {
             enter[nenter++] = v;
             i++;
@@ -2205,6 +2589,10 @@ int syn_arena_main(int argc, char **argv)
                    "                   being's .bgg\n"
                    "  --list           no rounds: the ladder for these settings, all of it\n"
                    "                   (with --out, printed there too)\n"
+                   "  --record         no rounds: every round in the record, each with its\n"
+                   "                   bloodline's genesis and final beings\n"
+                   "  --rebuild-record no new rounds: the record of the rounds from before it,\n"
+                   "                   replayed from their seeds (on --workers workers)\n"
                    "  --enter FILE     put the being in FILE (.bgg) on the ladder at level 1, named\n"
                    "                   after the file, before any rounds (up to 16 times)\n"
                    "  --quiet          only the ladder at the end\n",
@@ -2260,6 +2648,16 @@ int syn_arena_main(int argc, char **argv)
         }
     }
 
+    if (rebuild) {
+        int r = syn_arena_rebuild_record(given[2] ? o.workers : syn_arena_cores() - 1);
+        syn_arena_free();
+        return r;
+    }
+    if (record) {
+        list_record();
+        syn_arena_free();
+        return 0;
+    }
     if (list) {
         list_board(0);
         if (out) {

@@ -49,6 +49,15 @@
 
 /* The generator's state n draws after `state` (n < 0: before it). */
 uint64_t tel_jump(uint64_t state, int64_t n);
+/* The other way: how many draws after `from` the generator is at `to`, in
+ * [0, 2^48). The generator's period is all 2^48 states, so every state is
+ * some number of draws after any other: the discrete logarithm of the
+ * affine step. It is easy here because the modulus is a power of two: the
+ * low k bits of the states repeat every 2^k draws, so the count is read a
+ * bit at a time from the bottom, in 48 steps.
+ * From a seed's first state to a gene's cracked state, it is the gene's
+ * place in the world's stream of draws: when it was drawn. */
+uint64_t tel_draws(uint64_t from, uint64_t to);
 /* The state Random.setSeed(seed) leaves, and back: the seed in [0, 2^48)
  * that starts at that state. */
 uint64_t tel_seed_state(int64_t seed);
@@ -58,6 +67,11 @@ int64_t tel_state_seed(uint64_t state);
  * max are written to out, and the count found is returned. */
 int tel_crack_length(double length, uint64_t *out, int max);
 int tel_crack_theta(double theta, uint64_t *out, int max);
+
+/* How many genes two codes differ by, place by place, plus those one has
+ * beyond the other, plus one each for the arms and the mirroring. */
+struct GeneticCode;
+int tel_code_distance(const struct GeneticCode *a, const struct GeneticCode *b);
 
 /* syn-biogenesis --telescope ... */
 int syn_telescope_main(int argc, char **argv);

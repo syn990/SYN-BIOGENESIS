@@ -26,9 +26,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "io/bgg.h"
 #include "io/bgw.h"
 #include "sim/params.h"
+#include "syn/arena.h"
 #include "syn/arena_os.h"
+#include "syn/batch.h"
+#include "syn/family.h"
+#include "syn/library_screen.h"
+#include "syn/palette.h"
 #include "synos/synos.h"
 #include "ui/app.h"
 #include "ui/gfx.h"
@@ -37,6 +43,22 @@
 #define PAD 24.0f
 #define LOG 400
 #define LINE 240
+#define HITS 400
+
+enum { M_SEED, M_BEING };
+
+/* A scene the finder found: a frame of a world where the being, or one of
+ * its genes, is. */
+typedef struct {
+    bool round;    /* an arena round of the record, else a seed's world */
+    int set;       /* the seed's: which parameters (F.set) */
+    int index;     /* the round's place in the record */
+    int cycle;     /* the round's number */
+    int64_t seed;
+    int64_t frame;
+    char kind[12];
+    int n, d;
+} Hit;
 
 static struct {
     char path[1200];  /* the world searched, or to be */
@@ -57,7 +79,41 @@ static struct {
     Uint32 status_at;
     float scroll;
     bool follow; /* the log kept at its end */
+    int mode;    /* M_SEED, M_BEING */
 } T = {.follow = true};
+
+/* where a being lives: the search, its scenes, and the jump into one */
+static struct {
+    char name[80];
+    char path[1200]; /* the being as a .bgg file, for the search */
+    GeneticCode *gc;
+    bool running, done;
+    ArenaProc proc;
+    char part[4096];
+    size_t npart;
+    char log[8][LINE];
+    int nlog;
+    struct {
+        int w, h, n;
+    } set[4];
+    int nsets;
+    Hit hit[HITS];
+    int nhits;
+    int cur_round, cur_cycle; /* the last "@round" told */
+    int prog_k, prog_n;       /* the seed being run, of how many */
+    int64_t cur_seed;
+    double started, took;
+    float scroll;
+    /* the jump: a scene being made, then opened */
+    bool jumping;
+    ArenaProc jproc;
+    char jpart[256];
+    size_t njpart;
+    int jhit;
+    int64_t jframe_now;
+    char jpath[1200];
+    Batch b;
+} F;
 
 static SDL_Rect sdl(UIRect r)
 {
@@ -283,12 +339,451 @@ static void open_on_thread(App *a)
     app_set_status(a, msg);
 }
 
+/* ---- where a being lives ---- */
+
+static void find_log(const char *s)
+{
+    if (F.nlog == 8) {
+        memmove(F.log[0], F.log[1], sizeof F.log - sizeof F.log[0]);
+        F.nlog--;
+    }
+    copy(F.log[F.nlog++], LINE, s);
+}
+
+static void find_stop(void)
+{
+    if (F.running)
+        arena_os_end(&F.proc);
+    F.running = false;
+}
+
+static void jump_stop(void)
+{
+    if (F.jumping)
+        arena_os_end(&F.jproc);
+    F.jumping = false;
+}
+
+void syn_telescope_find(const GeneticCode *gc, const char *name)
+{
+    find_stop();
+    jump_stop();
+    T.mode = M_BEING;
+    snprintf(F.name, sizeof F.name, "%s", name && name[0] ? name : "this being");
+    snprintf(F.path, sizeof F.path, "%s/telescope-being.bgg", params_config_dir());
+    FILE *f = fopen(F.path, "wb");
+    if (f) {
+        bgg_write_file(f, gc);
+        fclose(f);
+    }
+    char err[200];
+    gc_unref(F.gc);
+    F.gc = f ? bgg_read(F.path, err, sizeof err) : NULL;
+    F.nhits = F.nlog = F.nsets = 0;
+    F.done = false;
+    F.scroll = 0;
+    if (!F.gc)
+        say("The being couldn't be kept for the search");
+}
+
+static void find_begin(void)
+{
+    find_stop();
+    F.nhits = F.nlog = F.nsets = 0;
+    F.done = false;
+    F.scroll = 0;
+    F.npart = 0;
+    F.cur_round = -1;
+    F.prog_k = F.prog_n = 0;
+    /* the parameters as saved, and the arena's world if it differs */
+    int w, h, n;
+    syn_arena_init();
+    syn_arena_world(&w, &h, &n);
+    char ws[16], hs[16], ns[16];
+    snprintf(ws, sizeof ws, "%d", w);
+    snprintf(hs, sizeof hs, "%d", h);
+    snprintf(ns, sizeof ns, "%d", n);
+    bool other = w != P.world_width || h != P.world_height || n != P.initial_organisms;
+    const char *args[] = {"--telescope", "find", F.path, "--progress", "--saved", "--world", ws, hs, ns};
+    char err[300];
+    if (!arena_os_spawn(&F.proc, args, other ? 9 : 5, err, sizeof err)) {
+        char msg[400];
+        snprintf(msg, sizeof msg, "The search didn't start: %s", err);
+        say(msg);
+        return;
+    }
+    F.running = true;
+    F.started = arena_os_now();
+}
+
+static void find_line(const char *s)
+{
+    Hit h;
+    memset(&h, 0, sizeof h);
+    long long seed, frame;
+    int a, b, c, d;
+    char kind[12];
+    if (sscanf(s, "@progress %d %d %d", &a, &b, &c) == 3) {
+        F.prog_k = b;
+        F.prog_n = c;
+        return;
+    }
+    if (sscanf(s, "@set %d %d %d %d", &a, &b, &c, &d) == 4) {
+        if (a >= 0 && a < 4) {
+            F.set[a].w = b;
+            F.set[a].h = c;
+            F.set[a].n = d;
+            F.nsets = a + 1 > F.nsets ? a + 1 : F.nsets;
+        }
+        return;
+    }
+    if (sscanf(s, "@scene %d %lld %lld %11s %d %d", &a, &seed, &frame, kind, &c, &d) == 6) {
+        h.set = a;
+        h.seed = seed;
+    } else if (sscanf(s, "@round %d %d %lld", &a, &b, &seed) == 3) {
+        F.cur_round = a;
+        F.cur_cycle = b;
+        F.cur_seed = seed;
+        return;
+    } else if (sscanf(s, "@rscene %d %lld %11s %d %d", &a, &frame, kind, &c, &d) == 5) {
+        h.round = true;
+        h.index = a;
+        h.cycle = a == F.cur_round ? F.cur_cycle : 0;
+        h.seed = a == F.cur_round ? F.cur_seed : 0;
+    } else {
+        if (!strcmp(s, "@done") || !strcmp(s, "@none"))
+            F.done = true;
+        else if (s[0] != '@')
+            find_log(s);
+        return;
+    }
+    h.frame = frame;
+    snprintf(h.kind, sizeof h.kind, "%s", kind);
+    h.n = c;
+    h.d = d;
+    if (F.nhits == HITS)
+        return;
+    /* a world's scenes come together: in it, by tick */
+    int at = F.nhits;
+    while (at > 0 && F.hit[at - 1].round == h.round && F.hit[at - 1].seed == h.seed &&
+           F.hit[at - 1].index == h.index && F.hit[at - 1].frame > h.frame)
+        at--;
+    memmove(&F.hit[at + 1], &F.hit[at], (size_t)(F.nhits - at) * sizeof *F.hit);
+    F.hit[at] = h;
+    F.nhits++;
+}
+
+/* lines from a child, a whole line at a time; false when it has ended */
+static bool child_lines(ArenaProc *p, char *part, size_t cap, size_t *np, void (*line)(const char *))
+{
+    char buf[4096];
+    for (;;) {
+        long m = arena_os_read(p, buf, sizeof buf);
+        if (m == 0)
+            return true;
+        if (m < 0) {
+            if (*np) {
+                part[*np] = '\0';
+                line(part);
+                *np = 0;
+            }
+            return false;
+        }
+        for (long i = 0; i < m; i++) {
+            if (buf[i] == '\n' || *np + 1 >= cap) {
+                part[*np] = '\0';
+                line(part);
+                *np = 0;
+            } else if (buf[i] != '\r') {
+                part[(*np)++] = buf[i];
+            }
+        }
+    }
+}
+
+static void poll_find(void)
+{
+    if (F.running && !child_lines(&F.proc, F.part, sizeof F.part, &F.npart, find_line)) {
+        arena_os_end(&F.proc);
+        F.running = false;
+        F.took = arena_os_now() - F.started;
+        if (!F.done)
+            say("The search stopped before it could say");
+    }
+}
+
+static App *g_app; /* for the jump's end */
+static uint64_t g_jstate;
+static bool g_jat;
+
+static void jump_line(const char *s)
+{
+    unsigned long long st;
+    long long fr;
+    if (sscanf(s, "@at %llx", &st) == 1) {
+        g_jstate = st;
+        g_jat = true;
+    } else if (sscanf(s, "@frame %lld", &fr) == 1) {
+        F.jframe_now = fr;
+    }
+}
+
+static void jump_begin(int i)
+{
+    jump_stop();
+    const Hit *h = &F.hit[i];
+    snprintf(F.jpath, sizeof F.jpath, "%s/telescope-scene.bgw", params_config_dir());
+    char a1[32], a2[32], ws[16], hs[16], ns[16];
+    const char *args[12];
+    int n = 0;
+    args[n++] = "--telescope";
+    args[n++] = "scene";
+    if (h->round) {
+        args[n++] = "--round";
+        snprintf(a1, sizeof a1, "%d", h->index);
+    } else {
+        snprintf(a1, sizeof a1, "%" PRId64, h->seed);
+    }
+    snprintf(a2, sizeof a2, "%" PRId64, h->frame);
+    args[n++] = a1;
+    args[n++] = a2;
+    args[n++] = F.jpath;
+    args[n++] = "--progress";
+    if (!h->round && h->set >= 0 && h->set < F.nsets && h->set > 0) {
+        snprintf(ws, sizeof ws, "%d", F.set[h->set].w);
+        snprintf(hs, sizeof hs, "%d", F.set[h->set].h);
+        snprintf(ns, sizeof ns, "%d", F.set[h->set].n);
+        args[n++] = "--world";
+        args[n++] = ws;
+        args[n++] = hs;
+        args[n++] = ns;
+    }
+    char err[300];
+    g_jat = false;
+    if (!arena_os_spawn(&F.jproc, args, n, err, sizeof err)) {
+        char msg[400];
+        snprintf(msg, sizeof msg, "The scene couldn't be made: %s", err);
+        say(msg);
+        return;
+    }
+    F.jumping = true;
+    F.jhit = i;
+    F.jframe_now = 0;
+}
+
+static void poll_jump(App *a)
+{
+    if (!F.jumping || child_lines(&F.jproc, F.jpart, sizeof F.jpart, &F.njpart, jump_line))
+        return;
+    arena_os_end(&F.jproc);
+    F.jumping = false;
+    if (!g_jat) {
+        say("The scene couldn't be made");
+        return;
+    }
+    /* opened with the generator where it was there: the world goes on as
+     * it went on */
+    const Hit *h = &F.hit[F.jhit];
+    app_file_chosen(a, FD_OPEN_WORLD, F.jpath);
+    g_rng.seed = g_jstate & ((1ULL << 48) - 1);
+    char msg[400];
+    if (h->round)
+        snprintf(msg, sizeof msg, "Arena round %d (seed %" PRId64 ") at tick %" PRId64 ", on its own thread", h->cycle,
+                 h->seed, h->frame);
+    else
+        snprintf(msg, sizeof msg, "Seed %" PRId64 " at tick %" PRId64 ", on its own thread", h->seed, h->frame);
+    app_set_status(a, msg);
+    synos_set_screen(SYNOS_WORLD);
+}
+
+static void hit_text(const Hit *h, char *out, size_t n)
+{
+    if (!strcmp(h->kind, "founder"))
+        snprintf(out, n, "its gene %d, in a founder at the world's start", h->n);
+    else if (!strcmp(h->kind, "gene"))
+        snprintf(out, n, "its gene %d drawn here", h->n);
+    else if (!strcmp(h->kind, "born"))
+        snprintf(out, n, "born: its newest gene drawn, %d alive just after", h->n);
+    else if (!strcmp(h->kind, "alive"))
+        snprintf(out, n, "alive: %d of it", h->n);
+    else if (!strcmp(h->kind, "most"))
+        snprintf(out, n, "the most of it: %d", h->n);
+    else if (!strcmp(h->kind, "nearest"))
+        snprintf(out, n, "its nearest relative: %d change%s", h->d, h->d == 1 ? "" : "s");
+    else if (!strcmp(h->kind, "final"))
+        snprintf(out, n, "the round ended with it (%d living)", h->n);
+    else if (!strcmp(h->kind, "genesis"))
+        snprintf(out, n, "its bloodline began the round as it");
+    else
+        snprintf(out, n, "%s", h->kind);
+}
+
+static SDL_Color raw(int c, Uint8 a)
+{
+    uint8_t r, g, b;
+    bio_color_rgb(c, &r, &g, &b);
+    return (SDL_Color){r, g, b, a};
+}
+
+/* A code's body in r, on black, as the laboratory draws it. */
+static void body(UIRect r, const GeneticCode *gc)
+{
+    skin_fill(r, (Rgb){0, 0, 0}, 1);
+    if (!gc)
+        return;
+    int n = syn_genes(gc) * gc->symmetry;
+    GcLine stackbuf[256];
+    GcLine *lines = n <= 256 ? stackbuf : malloc((size_t)n * sizeof *lines);
+    if (!lines)
+        return;
+    int w, h;
+    int m = gc_layout(gc, lines, n, &w, &h);
+    float scale = fminf(r.w * 0.86f / (float)(w > 0 ? w : 1), r.h * 0.86f / (float)(h > 0 ? h : 1));
+    if (scale > 4)
+        scale = 4;
+    float cx = r.x + r.w / 2, cy = r.y + r.h / 2, hw = fminf(1.6f, 0.7f + 0.25f * scale);
+    batch_begin(&F.b, TX_DISC, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < m; i++)
+        batch_capsule(&F.b, cx + (float)lines[i].x0 * scale, cy + (float)lines[i].y0 * scale,
+                      cx + (float)lines[i].x1 * scale, cy + (float)lines[i].y1 * scale, hw,
+                      raw(lines[i].color, 255));
+    batch_flush(&F.b, gfx_renderer());
+    if (lines != stackbuf)
+        free(lines);
+}
+
+static void being_view(App *a, float x, float y, float tw, float bottom)
+{
+    const Fonts *fo = synos_fonts();
+    char line[400], fit[1200];
+    y = para(fo->body,
+             "Its genes read back to where they were drawn: every gene length is one draw of the world's dice, "
+             "so it points to a place in a seed's stream. A gene its founders had gives the seed; the arena's "
+             "rounds, whose seeds are in the record, are searched for the rest. Each scene opens that world at "
+             "that tick, on its own thread.",
+             x, y, tw, TONE_MUTED) +
+        12;
+    UIRect pic = {x, y, 150, 110};
+    body(pic, F.gc);
+    float bx = pic.x + pic.w + 18;
+    skin_text(fo->heading, F.gc ? F.name : "No being chosen", bx, y + 2, F.gc ? TONE_TEXT : TONE_MUTED, ALIGN_LEFT);
+    if (F.gc) {
+        char plan[200];
+        syn_family_plan(F.gc, plan, sizeof plan);
+        skin_text(fo->small, skin_fit(fo->small, plan, x + tw - bx, fit, sizeof fit), bx,
+                  y + skin_text_height(fo->heading) + 8, TONE_MUTED, ALIGN_LEFT);
+    } else {
+        skin_text(fo->small, "Pick one in the library and choose WHERE IT LIVES.", bx,
+                  y + skin_text_height(fo->heading) + 8, TONE_MUTED, ALIGN_LEFT);
+    }
+    float by = y + 110 - 38;
+    UIRect go = {bx, by, 250, 38}, lib = {go.x + go.w + 8, by, 130, 38};
+    if (button(go, F.running ? "STOP" : "FIND WHERE IT LIVES", F.running, F.running || F.gc)) {
+        if (F.running) {
+            find_stop();
+            say("Stopped");
+        } else {
+            find_begin();
+        }
+    }
+    if (button(lib, "LIBRARY", false, true)) {
+        syn_library_open_from(SYNOS_TELESCOPE);
+        synos_set_screen(SYNOS_LIBRARY);
+        return;
+    }
+    double secs = F.running ? arena_os_now() - F.started : F.took;
+    if (F.running || F.done) {
+        char now[80] = "";
+        if (F.running && F.prog_n)
+            snprintf(now, sizeof now, "  ·  running seed %d of %d", F.prog_k, F.prog_n);
+        else if (F.running)
+            snprintf(now, sizeof now, "  ·  searching");
+        snprintf(line, sizeof line, "%d scene%s  ·  %.0f s%s", F.nhits, F.nhits == 1 ? "" : "s", secs, now);
+        skin_text(fo->body, line, lib.x + lib.w + 20, by + 10, F.running ? TONE_ACCENT : TONE_MUTED, ALIGN_LEFT);
+    }
+    y += 110 + 16;
+
+    /* the search's last words */
+    float lh = skin_text_height(fo->small) + 3;
+    float logh = (float)F.nlog * lh;
+    /* the scenes, by world */
+    UIRect list = {x, y, tw, bottom - y - logh - 10};
+    if (list.h > 60 && F.nhits) {
+        float rh = 40, hh = skin_text_height(fo->small_bold) + 14;
+        float total = 0;
+        for (int i = 0; i < F.nhits; i++) {
+            bool head = !i || F.hit[i].round != F.hit[i - 1].round || F.hit[i].seed != F.hit[i - 1].seed ||
+                        F.hit[i].index != F.hit[i - 1].index;
+            total += rh + (head ? hh : 0);
+        }
+        float maxs = fmaxf(0, total - list.h);
+        if (over(list))
+            F.scroll -= ui_wheel_fy() * rh * 2;
+        F.scroll = fminf(fmaxf(F.scroll, 0), maxs);
+        gfx_clip_push(sdl(list));
+        float ry = list.y - F.scroll;
+        for (int i = 0; i < F.nhits; i++) {
+            const Hit *hh_ = &F.hit[i];
+            bool head = !i || hh_->round != F.hit[i - 1].round || hh_->seed != F.hit[i - 1].seed ||
+                        hh_->index != F.hit[i - 1].index;
+            if (head) {
+                if (hh_->round)
+                    snprintf(line, sizeof line, "ARENA ROUND %d  ·  seed %" PRId64 "  ·  as the round began: its seed and fighters",
+                             hh_->cycle, hh_->seed);
+                else if (hh_->set >= 0 && hh_->set < F.nsets)
+                    snprintf(line, sizeof line, "SEED %" PRId64 "  ·  %d x %d, %d first organisms", hh_->seed,
+                             F.set[hh_->set].w, F.set[hh_->set].h, F.set[hh_->set].n);
+                else
+                    snprintf(line, sizeof line, "SEED %" PRId64, hh_->seed);
+                if (ry + hh > list.y && ry < list.y + list.h)
+                    skin_text(fo->small_bold, line, list.x, ry + 8, TONE_ACCENT, ALIGN_LEFT);
+                ry += hh;
+            }
+            if (ry + rh > list.y && ry < list.y + list.h) {
+                UIRect row = {list.x, ry, list.w, rh - 4};
+                skin_fill(row, skin_theme()->accent, over(row) ? 0.12f : 0.05f);
+                char what[200];
+                hit_text(hh_, what, sizeof what);
+                skin_text(fo->body, what, row.x + 12, row.y + 9, TONE_TEXT, ALIGN_LEFT);
+                snprintf(line, sizeof line, "tick %" PRId64 "  ·  time unit %" PRId64, hh_->frame, hh_->frame / 256);
+                skin_text(fo->small, line, row.x + row.w - 150, row.y + 11, TONE_MUTED, ALIGN_RIGHT);
+                UIRect jb = {row.x + row.w - 130, row.y + 3, 120, row.h - 6};
+                bool busy = F.jumping && F.jhit == i;
+                if (button(jb, busy ? "MAKING..." : "JUMP", busy, !F.jumping))
+                    jump_begin(i);
+                if (over(jb) && !F.jumping)
+                    ui_tooltip("Make this world at this tick and open it, the generator where it was there");
+            }
+            ry += rh;
+        }
+        gfx_clip_pop();
+    } else if (F.done && !F.nhits) {
+        para(fo->body,
+             "Nowhere found. Every gene it has was drawn after some world's start, in no round of the record: "
+             "a gene drawn later says where in a stream it was drawn, not which stream. Its seed has faded.",
+             x, y, tw, TONE_WARN);
+    }
+    float ly = bottom - logh;
+    for (int i = 0; i < F.nlog; i++)
+        skin_text(fo->small, skin_fit(fo->small, F.log[i], tw, fit, sizeof fit), x, ly + (float)i * lh,
+                  TONE_MUTED, ALIGN_LEFT);
+    if (F.jumping) {
+        snprintf(line, sizeof line, "Making the scene: tick %" PRId64 " of %" PRId64, F.jframe_now,
+                 F.hit[F.jhit].frame);
+        say(line);
+    }
+    (void)a;
+}
+
 /* ---- the screen ---- */
 
 void syn_telescope_frame(App *a, int w, int h)
 {
     const Fonts *fo = synos_fonts();
     poll_search();
+    poll_find();
+    g_app = a;
+    poll_jump(a);
     bool keys = !ui_any_modal() && !ui_text_focused() && !ui_popup_showing();
     if (keys && ui_key_pressed(SDLK_ESCAPE)) {
         synos_set_screen(SYNOS_MENU);
@@ -306,9 +801,22 @@ void syn_telescope_frame(App *a, int w, int h)
         synos_set_screen(SYNOS_MENU);
         return;
     }
-    y += 54;
+    y += 50;
     float tw = right - (panel.x + PAD);
     x = panel.x + PAD;
+    UIRect t1 = {x, y, 200, 34}, t2 = {x + 206, y, 250, 34};
+    if (button(t1, "A WORLD'S SEED", T.mode == M_SEED, true))
+        T.mode = M_SEED;
+    if (button(t2, "WHERE A BEING LIVES", T.mode == M_BEING, true))
+        T.mode = M_BEING;
+    y += 34 + 16;
+    if (T.mode == M_BEING) {
+        being_view(a, x, y, tw, panel.y + panel.h - PAD - skin_text_height(fo->small) - 10);
+        if (T.status[0] && SDL_GetTicks() - T.status_at < 8000)
+            skin_text(fo->small, T.status, x, panel.y + panel.h - PAD - skin_text_height(fo->small), TONE_ACCENT,
+                      ALIGN_LEFT);
+        return;
+    }
     y = para(fo->body,
              "A world's seed, read back from its save: the genes its founders drew at tick 0 still "
              "in it point to the seed, and replaying that seed from tick 0 to the saved tick proves it.",
@@ -457,6 +965,25 @@ void syn_telescope_chosen(App *a, const char *path)
 void syn_telescope_shot_prepare(App *a)
 {
     (void)a;
+    /* SYN_BIOGENESIS_SHOT_FIND = a .bgg: where it lives, searched to the end */
+    const char *b = getenv("SYN_BIOGENESIS_SHOT_FIND");
+    if (b) {
+        char err[200];
+        GeneticCode *gc = bgg_read(b, err, sizeof err);
+        if (!gc) {
+            fprintf(stderr, "%s: %s\n", b, err);
+            return;
+        }
+        const char *base = strrchr(b, '/');
+        syn_telescope_find(gc, base ? base + 1 : b);
+        gc_unref(gc);
+        find_begin();
+        while (F.running) {
+            arena_os_wait(&F.proc.from, 1, 200);
+            poll_find();
+        }
+        return;
+    }
     const char *f = getenv("SYN_BIOGENESIS_SHOT_TELESCOPE");
     if (!f)
         return;
@@ -473,6 +1000,11 @@ void syn_telescope_shot_prepare(App *a)
 void syn_telescope_screen_free(void)
 {
     stop();
+    find_stop();
+    jump_stop();
+    gc_unref(F.gc);
+    batch_free(&F.b);
+    memset(&F, 0, sizeof F);
     memset(&T, 0, sizeof T);
     T.follow = true;
 }
@@ -499,6 +1031,12 @@ void syn_telescope_shot_prepare(struct App *a)
 
 void syn_telescope_screen_free(void)
 {
+}
+
+void syn_telescope_find(const struct GeneticCode *gc, const char *name)
+{
+    (void)gc;
+    (void)name;
 }
 
 #endif

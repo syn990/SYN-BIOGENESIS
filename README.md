@@ -361,6 +361,12 @@ same step, x → A·x + B (mod 2⁴⁸), with A = 0x5DEECE66D and B = 11. So:
   2 + 16u, and u = `nextDouble()` is 53 bits of two consecutive states. A
   length read exactly leaves one state that could have drawn it, found
   among 4 million candidates in milliseconds: `--telescope gene LENGTH`.
+- **The draws between two states can be counted.** The generator's period
+  is all 2⁴⁸ states, so every state is some number of draws after any
+  other: the discrete logarithm of the step. Modulo a power of two it is
+  easy, since the low k bits of the states repeat every 2ᵏ draws, and the
+  count is read a bit at a time in 48 steps. From a seed's first state to
+  a gene's, it is the draw the gene was made at.
 
 A world keeps its genes, and a founder's gene that no mutation has touched
 since tick 0 is still the draw the generator made when the founders were
@@ -398,10 +404,13 @@ seeds the telescope finds share three genes with it, no more than wrong
 seeds do (in the 60,000-tick world above, 376 wrong seeds shared two or
 more), and its earliest record is from tick 888,320, so every wrong seed
 would cost that many ticks to turn away. A gene born of a later mutation
-gives the generator's state at the moment it was drawn, but not how many
-draws came before it. And anything done to a world from the menus (an
-import, CO2 added) takes it off the thread its seed began, so no seed
-replays to it.
+gives the generator's state at the moment it was drawn. Counted from a
+seed it gives the draw it was made at, but it can't say which seed: every
+seed a few draws to some millions of draws before it is one to try. How
+fast a world's genes move away from its seed, and what that leaves of the
+seed to read, is measured in [`docs/fade/`](docs/fade/README.md). And
+anything done to a world from the menus (an import, CO2 added) takes it off
+the thread its seed began, so no seed replays to it.
 
 **On its own thread.** The generator's state at the saved tick is what a
 loaded world needs to go on as the world it was, not down a new path. In
@@ -420,6 +429,23 @@ the generator where it was. Without a window, `syn-biogenesis --headless
   The two files differ only in each organism's `_framesColor`, which counts
   a flash down as it is drawn: the window counts it down, the jar without
   a window never does, and the original's own window would.
+
+**Where a being lives.** TELESCOPE > WHERE A BEING LIVES (or WHERE IT LIVES
+on a being in the library or the arena's record) runs the telescope the
+other way: from a being's genes to the worlds they were drawn in.
+`--telescope find FILE.bgg` does it without a window. Each gene length is
+cracked to its state, then looked for in two places. One is the seeds
+whose founders had it, each replayed until one is the being's world. The
+other is the arena's recorded rounds, whose seeds are known, so a gene's
+count of draws from a round's seed says whether that round drew it. Each
+find is a scene: a seed or round, a tick, and what is there (its gene
+drawn, the being alive, the most of it, the round ending with it). JUMP
+makes that world at that tick (`--telescope scene SEED FRAMES OUT.bgw`, or
+`scene --round I ...` for a round, its fighters and all) and opens it on
+its own thread. On a test ladder, a ladder winner's genes pointed to the two rounds that
+made it. The scene made at the tick it was first alive holds its exact
+code. How it works, and where it stops, is in
+[`docs/fade/`](docs/fade/README.md#where-a-being-lives).
 
 ## The ultimate being
 
@@ -875,6 +901,33 @@ into one from outside the program is in the library too.
   removes them for good. Folders are made, renamed, and removed when
   empty. Names keep to what every file system takes.
 
+### The arena's record
+
+The arena (ARENA on the SYN-OS menu, or `--arena` without a window) runs
+worlds on every core as a ladder that winners climb. Its ladder keeps who
+stands where; its record keeps every round for good, in
+`~/.config/syn-biogenesis/arena-0.9.record` (`arena-colour.record`). For
+each round it keeps:
+- the seed, level, settings and outcome
+- the time one bloodline was left alive
+- the winning bloodline's **genesis being**, the code it began the round as
+- its **final being**, the one the round ended with
+- the fighters, with their codes
+- the living and the bloodlines through the round
+
+ARENA > RECORD shows what it adds up to: when one bloodline was left, the
+bloodlines through each round drawn over each other, and how many genes
+the final being has changed from the genesis being. It lists every round
+with its two beings, each with WHERE IT LIVES.
+
+Rounds from before the record are rebuilt from the ladder with
+`syn-biogenesis --arena --rebuild-record`. Each being on the ladder has the
+seed of the round it won, so its round is replayed from that seed, in each
+order of its fighters and with and without newcomers. It is kept as
+replayed only if the replay ends with the very being the ladder kept, byte
+for byte; otherwise as the ladder alone has it. `--arena --record` prints
+the record.
+
 ### Looks
 
 Chosen in OPTIONS, the View menu or with L, and remembered in
@@ -936,7 +989,8 @@ src/syn/        the SYN edition's world view: navigation, the looks, batched dra
                 its history (history.c), family tree (family.c, family_view.c)
                 and statistics screen (stats_screen.c);
                 palette.c, the segment colours of both simulations;
-                the arena (arena*.c); the dice telescope (telescope.c) and its
+                the arena (arena*.c), its rounds' worlds (round.c) and record
+                (record.c); the dice telescope (telescope.c) and its
                 screen (telescope_screen.c); the being library (library.c) and
                 its screen (library_screen.c)
 src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
@@ -973,7 +1027,9 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
 - the frame-by-frame comparison with the shipped jar
 - the dice telescope: jumps land where single draws do, seeds start where
   `setSeed` starts them, every gene length and angle the simulation draws
-  cracks back to its state, and the seed of a world the jar saved at tick
+  cracks back to its state, the count of draws between two states is the
+  jump that joins them (and a gene drawn 12,345 draws in is found there),
+  and the seed of a world the jar saved at tick
   3,000 is found from the save and replayed identical; that save, run
   1,000 frames on from the generator found, is the jar's own tick 4,000
 - the being library, in a folder of its own: codes kept exactly, moved,
@@ -993,6 +1049,9 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
 The Java parts are skipped without a JDK. The reference runs the jar's own classes, not
 recompiled and not patched. Only the Swing classes they call into are
 replaced with no-op stand-ins, so they run without a window.
+
+`tools/fade/fade.py` reruns the fade study (about 25 minutes on six cores; see
+[`docs/fade/README.md`](docs/fade/README.md#running-it-again)).
 
 `tools/drift/drift.py` reruns the drift study (about half an hour on six cores;
 see [`tools/drift/README.md`](tools/drift/README.md)).

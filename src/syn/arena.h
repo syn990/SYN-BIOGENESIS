@@ -232,6 +232,13 @@ void syn_arena_clear(void);
  * NULL, with why, if it can't be (the ladder is another simulation's, or
  * full of beings fighting). */
 const ArenaEntry *syn_arena_enter(const GeneticCode *gc, const char *name, char *err, size_t n);
+
+/* The record (syn/record.h) of the rounds from before it, rebuilt from the
+ * ladder: each being's round replayed from its seed on this many workers,
+ * kept as replayed when the replay ends with the very being the ladder
+ * kept, else as the ladder alone has it. Rounds already in the record are
+ * left as they are. 0 when done. */
+int syn_arena_rebuild_record(int workers);
 const char *syn_outcome_name(int outcome);
 
 /* syn-biogenesis [--colour] --arena [options]: rounds without a window,

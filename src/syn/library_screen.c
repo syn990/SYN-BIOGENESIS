@@ -27,6 +27,7 @@
 #include "syn/batch.h"
 #include "syn/library.h"
 #include "syn/palette.h"
+#include "syn/telescope_screen.h"
 #include "synos/synos.h"
 #include "ui/app.h"
 #include "ui/gfx.h"
@@ -633,6 +634,13 @@ static void picked_view(App *a, UIRect r)
         {"MOVE TO...", "Into another folder", !entry},
         {!strcmp(L.folder, LIB_BIN) ? "DELETE FOR GOOD" : "DELETE",
          !strcmp(L.folder, LIB_BIN) ? "Remove it for good (click twice)" : "To the Bin", !entry},
+        {"WHERE IT LIVES", "In the telescope: the seeds and arena rounds its genes were drawn in, as scenes to open",
+#ifdef BIO_COLOUR
+         false
+#else
+         true
+#endif
+        },
     };
     float x = r.x;
     uint32_t mpop = ui_id("libmove", 0);
@@ -710,6 +718,10 @@ static void picked_view(App *a, UIRect r)
             }
             break;
         }
+        case 7:
+            syn_telescope_find(gc, nm);
+            synos_set_screen(SYNOS_TELESCOPE);
+            return;
         }
         break;
     }

@@ -18,6 +18,7 @@
 #include "syn/arena_screen.h"
 
 #include <SDL_image.h>
+#include <inttypes.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -32,6 +33,8 @@
 #include "syn/batch.h"
 #include "syn/library_screen.h"
 #include "syn/palette.h"
+#include "syn/record.h"
+#include "syn/telescope_screen.h"
 #include "synos/synos.h"
 #include "ui/app.h"
 #include "ui/gfx.h"
@@ -52,7 +55,8 @@
 static struct {
     Batch b;
     float scroll;     /* the leaderboard's */
-    int view;               /* V_SETUP, V_BATTLES, V_TREE */
+    float rec_scroll; /* the record's */
+    int view;               /* V_SETUP, V_BATTLES, V_TREE, V_RECORD */
     bool view_set;          /* chosen yet */
     char status[400];       /* what PRINT WINNERS did, for a while */
     Uint32 status_at;
@@ -63,7 +67,7 @@ static struct {
     float tip_x, tip_y;
 } S;
 
-enum { V_SETUP, V_BATTLES, V_TREE };
+enum { V_SETUP, V_BATTLES, V_TREE, V_RECORD };
 
 static int g_mx, g_my;
 
@@ -1331,6 +1335,303 @@ static void print_winners(void)
     S.status_at = SDL_GetTicks();
 }
 
+/* ---- the record: every round ever fought ---- */
+
+#define REC_BINS 30
+#define REC_CHANGES 12
+
+/* what the record adds up to, worked out again when it grows */
+static struct {
+    unsigned version;
+    int n, by_source[3], by_outcome[OUT_KINDS];
+    int lone, lone_of; /* rounds left with one bloodline, of those that began with two or more */
+    float lone_mid, lone_lo, lone_hi;
+    int lone_bin[REC_BINS];
+    float bin_w; /* time units a bin */
+    int changes_known, unchanged;
+    float changes_mid;
+    int change_bin[REC_CHANGES]; /* the last: as many or more */
+    int t_max, lines_max; /* t_max: the time the charts span, twice what most rounds took to one bloodline */
+    int *order; /* the rounds as listed: the newest first */
+} RS = {.version = ~0u};
+
+static int cmp_float(const void *a, const void *b)
+{
+    float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
+}
+
+static float quantile(const float *v, int n, float q)
+{
+    if (n <= 0)
+        return 0;
+    float at = q * (float)(n - 1);
+    int i = (int)at;
+    return i + 1 < n ? v[i] + (v[i + 1] - v[i]) * (at - (float)i) : v[i];
+}
+
+/* recorded later first; of those rebuilt from the ladder, the later round */
+static int cmp_newest(const void *a, const void *b)
+{
+    const RecordRound *x = syn_record_at(*(const int *)a), *y = syn_record_at(*(const int *)b);
+    if (x->when != y->when)
+        return x->when < y->when ? 1 : -1;
+    if (x->cycle != y->cycle)
+        return y->cycle - x->cycle;
+    return *(const int *)b - *(const int *)a;
+}
+
+static void record_stats(void)
+{
+    int n = syn_record_count();
+    if (RS.version == syn_record_version() && RS.n == n)
+        return;
+    free(RS.order);
+    memset(&RS, 0, sizeof RS);
+    RS.version = syn_record_version();
+    RS.n = n;
+    float *lone = malloc((size_t)(n ? n : 1) * sizeof *lone), *ch = malloc((size_t)(n ? n : 1) * sizeof *ch),
+          *ends = malloc((size_t)(n ? n : 1) * sizeof *ends);
+    RS.order = malloc((size_t)(n ? n : 1) * sizeof *RS.order);
+    if (!lone || !ch || !ends || !RS.order)
+        abort();
+    for (int i = 0; i < n; i++) {
+        RS.order[i] = i;
+        ends[i] = (float)syn_record_at(i)->t_end;
+    }
+    qsort(RS.order, (size_t)n, sizeof *RS.order, cmp_newest);
+    qsort(ends, (size_t)n, sizeof *ends, cmp_float);
+    float longest = quantile(ends, n, 0.95f);
+    free(ends);
+    int nl = 0, nc = 0;
+    for (int i = 0; i < n; i++) {
+        const RecordRound *r = syn_record_at(i);
+        if (r->source >= 0 && r->source < 3)
+            RS.by_source[r->source]++;
+        if (r->outcome >= 0 && r->outcome < OUT_KINDS)
+            RS.by_outcome[r->outcome]++;
+        /* only rounds whose curve says how they began */
+        if (r->ncurve > 0 && r->curve[0].lines >= 2) {
+            RS.lone_of++;
+            if (r->t_lone >= 0)
+                lone[nl++] = (float)r->t_lone;
+        }
+        for (int k = 0; k < r->ncurve; k++)
+            RS.lines_max = r->curve[k].lines > RS.lines_max ? r->curve[k].lines : RS.lines_max;
+        int d = syn_record_changes(r);
+        if (d >= 0) {
+            ch[nc++] = (float)d;
+            RS.unchanged += d == 0;
+            RS.change_bin[d < REC_CHANGES - 1 ? d : REC_CHANGES - 1]++;
+        }
+    }
+    RS.lone = nl;
+    RS.changes_known = nc;
+    qsort(lone, (size_t)nl, sizeof *lone, cmp_float);
+    qsort(ch, (size_t)nc, sizeof *ch, cmp_float);
+    RS.lone_mid = quantile(lone, nl, 0.5f);
+    RS.lone_lo = quantile(lone, nl, 0.25f);
+    RS.lone_hi = quantile(lone, nl, 0.75f);
+    RS.changes_mid = quantile(ch, nc, 0.5f);
+    /* the charts over the time it takes, not the time rounds run */
+    float span = nl ? 2 * quantile(lone, nl, 0.95f) : longest;
+    RS.t_max = (int)ceilf(fminf(fmaxf(span, 10), fmaxf(longest, 10)));
+    RS.bin_w = fmaxf(1, ceilf((float)RS.t_max / REC_BINS));
+    for (int i = 0; i < nl; i++) {
+        int b = (int)(lone[i] / RS.bin_w);
+        if (b < REC_BINS)
+            RS.lone_bin[b]++;
+    }
+    free(lone);
+    free(ch);
+}
+
+/* bars of counts in r, with a label under the first and last */
+static void bars(UIRect r, const int *v, int n, SDL_Color c, const char *left, const char *right)
+{
+    const Fonts *fo = synos_fonts();
+    float sh = skin_text_height(fo->small) + 4;
+    UIRect plot = {r.x, r.y, r.w, r.h - sh};
+    skin_fill(plot, (Rgb){0, 0, 0}, 0.28f);
+    int most = 1;
+    for (int i = 0; i < n; i++)
+        most = v[i] > most ? v[i] : most;
+    float bw = plot.w / (float)n;
+    for (int i = 0; i < n; i++) {
+        float h = (plot.h - 6) * (float)v[i] / (float)most;
+        SDL_SetRenderDrawBlendMode(gfx_renderer(), SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(gfx_renderer(), c.r, c.g, c.b, c.a);
+        SDL_FRect b = {plot.x + bw * (float)i + 1, plot.y + plot.h - h, fmaxf(1, bw - 2), h};
+        SDL_RenderFillRectF(gfx_renderer(), &b);
+    }
+    skin_text(fo->small, left, plot.x, plot.y + plot.h + 3, TONE_MUTED, ALIGN_LEFT);
+    skin_text(fo->small, right, plot.x + plot.w, plot.y + plot.h + 3, TONE_MUTED, ALIGN_RIGHT);
+}
+
+/* every round's bloodlines through it, drawn over each other */
+static void coalescence(UIRect r)
+{
+    const Fonts *fo = synos_fonts();
+    float sh = skin_text_height(fo->small) + 4;
+    UIRect plot = {r.x, r.y, r.w, r.h - sh};
+    skin_fill(plot, (Rgb){0, 0, 0}, 0.28f);
+    int n = syn_record_count();
+    float tmax = RS.bin_w * REC_BINS, lmax = (float)(RS.lines_max > 1 ? RS.lines_max : 2);
+    /* the newest 400 are plenty to see the shape */
+    gfx_clip_push(sdl(plot));
+    batch_begin(&S.b, TX_DISC, SDL_BLENDMODE_BLEND);
+    for (int i = n > 400 ? n - 400 : 0; i < n; i++) {
+        const RecordRound *rr = syn_record_at(i);
+        for (int k = 1; k < rr->ncurve; k++) {
+            const RecordPoint *a = &rr->curve[k - 1], *b = &rr->curve[k];
+            float x0 = plot.x + plot.w * (float)a->t / tmax, x1 = plot.x + plot.w * (float)b->t / tmax;
+            float y0 = plot.y + plot.h - (plot.h - 4) * (float)a->lines / lmax,
+                  y1 = plot.y + plot.h - (plot.h - 4) * (float)b->lines / lmax;
+            batch_capsule(&S.b, x0, y0, x1, y1, 0.9f, outcome(rr->outcome, 60));
+        }
+    }
+    batch_flush(&S.b, gfx_renderer());
+    gfx_clip_pop();
+    float y1 = plot.y + plot.h - (plot.h - 4) / lmax;
+    skin_fill(ui_rect(plot.x, y1, plot.w, 1), (Rgb){255, 255, 255}, 0.35f);
+    skin_text(fo->small, "one bloodline", plot.x + plot.w - 4, y1 - skin_text_height(fo->small) - 1, TONE_MUTED,
+              ALIGN_RIGHT);
+    char s[64];
+    snprintf(s, sizeof s, "%d bloodlines", (int)lmax);
+    skin_text(fo->small, s, plot.x + 4, plot.y + 3, TONE_MUTED, ALIGN_LEFT);
+    skin_text(fo->small, "time 0", plot.x, plot.y + plot.h + 3, TONE_MUTED, ALIGN_LEFT);
+    snprintf(s, sizeof s, "%.0f", tmax);
+    skin_text(fo->small, s, plot.x + plot.w, plot.y + plot.h + 3, TONE_MUTED, ALIGN_RIGHT);
+}
+
+static void record_view(App *a, UIRect area)
+{
+    const Fonts *fo = synos_fonts();
+    syn_arena_init();
+    record_stats();
+    char s[480], fit[480];
+    float lw = fminf(560, area.w * 0.4f);
+    UIRect left = {area.x, area.y, lw, area.h}, right = {area.x + lw + 24, area.y, area.w - lw - 24, area.h};
+
+    /* what it adds up to */
+    float y = left.y;
+    skin_text(fo->heading, "EVERY ROUND EVER FOUGHT", left.x, y, TONE_TEXT, ALIGN_LEFT);
+    y += skin_text_height(fo->heading) + 8;
+    float lh = skin_text_height(fo->body) + 6;
+    snprintf(s, sizeof s, "%d rounds: %d recorded as they were fought, %d replayed from their seeds, %d from the "
+             "ladder alone", RS.n, RS.by_source[REC_LIVE], RS.by_source[REC_REPLAYED], RS.by_source[REC_LADDER]);
+    y = para(fo->small, s, left.x, y, left.w, TONE_MUTED) + 4;
+    for (int o = 0; o < OUT_KINDS; o++) {
+        if (!RS.by_outcome[o])
+            continue;
+        skin_fill(ui_rect(left.x, y + 5, 10, 10), (Rgb){outcome(o, 255).r, outcome(o, 255).g, outcome(o, 255).b}, 1);
+        snprintf(s, sizeof s, "%s  %d", outcome_label(o), RS.by_outcome[o]);
+        skin_text(fo->body, s, left.x + 18, y, TONE_TEXT, ALIGN_LEFT);
+        y += lh;
+    }
+    y += 6;
+    if (RS.lone_of) {
+        snprintf(s, sizeof s, "One bloodline left in %d of %d rounds (%.0f%%), at time %.0f (the middle half %.0f to %.0f)",
+                 RS.lone, RS.lone_of, 100.0f * (float)RS.lone / (float)RS.lone_of, RS.lone_mid, RS.lone_lo, RS.lone_hi);
+        y = para(fo->body, s, left.x, y, left.w, TONE_TEXT) + 2;
+    }
+    if (RS.changes_known) {
+        snprintf(s, sizeof s, "The final being is the genesis being unchanged in %d of %d; %.0f gene%s changed in the "
+                 "middle round", RS.unchanged, RS.changes_known, RS.changes_mid, RS.changes_mid == 1 ? "" : "s");
+        y = para(fo->body, s, left.x, y, left.w, TONE_TEXT) + 2;
+    }
+    y += 10;
+    float ch = fmaxf(70, (left.y + left.h - y - 3 * 30) / 3);
+    if (RS.n) {
+        skin_text(fo->small_bold, "WHEN ONE BLOODLINE WAS LEFT", left.x, y, TONE_MUTED, ALIGN_LEFT);
+        y += skin_text_height(fo->small_bold) + 4;
+        char rl[32];
+        snprintf(rl, sizeof rl, "%.0f", RS.bin_w * REC_BINS);
+        bars(ui_rect(left.x, y, left.w, ch), RS.lone_bin, REC_BINS, series(0, 220), "time 0", rl);
+        y += ch + 12;
+        skin_text(fo->small_bold, "BLOODLINES THROUGH EACH ROUND", left.x, y, TONE_MUTED, ALIGN_LEFT);
+        y += skin_text_height(fo->small_bold) + 4;
+        coalescence(ui_rect(left.x, y, left.w, ch));
+        y += ch + 12;
+        skin_text(fo->small_bold, "GENES CHANGED, GENESIS BEING TO FINAL", left.x, y, TONE_MUTED, ALIGN_LEFT);
+        y += skin_text_height(fo->small_bold) + 4;
+        bars(ui_rect(left.x, y, left.w, ch), RS.change_bin, REC_CHANGES, series(2, 220), "none", "11 or more");
+    }
+
+    /* the rounds, the newest first */
+    int n = syn_record_count();
+    UIRect list = right;
+    if (!n) {
+        para(fo->body, "Every round the arena fights is kept here for good: its seed, when one bloodline was left, "
+             "and the bloodline's genesis and final beings. Rounds from before the record can be rebuilt with "
+             "syn-biogenesis --arena --rebuild-record.", list.x, list.y + 8, list.w, TONE_MUTED);
+        return;
+    }
+    float rh = 74;
+    float maxs = fmaxf(0, rh * (float)n - list.h);
+    if (over(list))
+        S.rec_scroll -= ui_wheel_fy() * rh * 2;
+    S.rec_scroll = fminf(fmaxf(S.rec_scroll, 0), maxs);
+    gfx_clip_push(sdl(list));
+    int first = (int)(S.rec_scroll / rh);
+    for (int k = first; k < n; k++) {
+        float ry = list.y + rh * (float)k - S.rec_scroll;
+        if (ry > list.y + list.h)
+            break;
+        int i = RS.order ? RS.order[k] : n - 1 - k;
+        const RecordRound *r = syn_record_at(i);
+        UIRect row = {list.x, ry, list.w, rh - 6};
+        if (over(row) && over(list))
+            skin_row_hover(row);
+        skin_fill(ui_rect(row.x, row.y + 6, 3, row.h - 12), (Rgb){outcome(r->outcome, 255).r, outcome(r->outcome, 255).g,
+                                                                  outcome(r->outcome, 255).b}, 1);
+        snprintf(s, sizeof s, "ROUND %d", r->cycle);
+        skin_text(fo->bold, s, row.x + 12, row.y + 8, TONE_TEXT, ALIGN_LEFT);
+        if (r->level)
+            snprintf(s, sizeof s, "level %d", r->level);
+        else
+            snprintf(s, sizeof s, "qualifying");
+        skin_text(fo->small, s, row.x + 12, row.y + 32, TONE_MUTED, ALIGN_LEFT);
+        skin_text(fo->small, outcome_label(r->outcome), row.x + 12, row.y + 48, TONE_MUTED, ALIGN_LEFT);
+        /* genesis -> final */
+        float tx = row.x + 150, th = row.h - 8;
+        char tip[300];
+        snprintf(tip, sizeof tip, "%s: the bloodline's genesis being in round %d, as it began the round",
+                 r->gname[0] ? r->gname : "?", r->cycle);
+        thumb(a, ui_rect(tx, row.y + 4, th, th), r->genesis, ui_id("rec-gen", (uint32_t)i), tip, r->gname);
+        skin_text(fo->heading, ">", tx + th + 8, row.y + th / 2 - 8, TONE_MUTED, ALIGN_LEFT);
+        snprintf(tip, sizeof tip, "%s: the being round %d ended with%s", r->final ? r->name : "none", r->cycle,
+                 r->uid ? " and the ladder kept" : "");
+        thumb(a, ui_rect(tx + th + 28, row.y + 4, th, th), r->final, ui_id("rec-fin", (uint32_t)i), tip, r->name);
+        float x2 = tx + 2 * th + 44, w2 = row.x + row.w - x2 - 170;
+        snprintf(s, sizeof s, "%s  >  %s", r->gname[0] ? r->gname : "?", r->final ? r->name : "no survivors");
+        skin_text(fo->bold, skin_fit(fo->bold, s, w2, fit, sizeof fit), x2, row.y + 8, TONE_TEXT, ALIGN_LEFT);
+        char lone[48] = "never one bloodline";
+        if (r->t_lone >= 0)
+            snprintf(lone, sizeof lone, "one bloodline at %d", r->t_lone);
+        int d = syn_record_changes(r);
+        char chg[40] = "";
+        if (d >= 0)
+            snprintf(chg, sizeof chg, " · %d gene%s changed", d, d == 1 ? "" : "s");
+        snprintf(s, sizeof s, "seed %" PRId64 " · %s · ran %d · %.0f%% of %d living%s", r->seed, lone, r->t_end,
+                 r->share * 100, r->pop, chg);
+        skin_text(fo->small, skin_fit(fo->small, s, w2, fit, sizeof fit), x2, row.y + 32, TONE_MUTED, ALIGN_LEFT);
+        snprintf(s, sizeof s, "%s%s", r->plan,
+                 r->source == REC_REPLAYED ? " · replayed from its seed" : r->source == REC_LADDER ? " · from the ladder alone" : "");
+        skin_text(fo->small, skin_fit(fo->small, s, w2, fit, sizeof fit), x2, row.y + 48, TONE_MUTED, ALIGN_LEFT);
+#ifndef BIO_COLOUR
+        UIRect wb = {row.x + row.w - 160, row.y + (row.h - 34) / 2, 150, 34};
+        if (r->final && button(wb, "WHERE IT LIVES", false, true)) {
+            syn_telescope_find(r->final, r->name);
+            synos_set_screen(SYNOS_TELESCOPE);
+        }
+        if (over(wb))
+            ui_tooltip("The final being in the telescope: the seeds and rounds its genes were drawn in, as scenes");
+#endif
+    }
+    gfx_clip_pop();
+}
+
 /* ---- the screen ---- */
 
 static void duration(char *out, size_t n, double s)
@@ -1760,7 +2061,8 @@ void syn_arena_frame(App *a, int w, int h)
 
     /* SETUP or BATTLES, and how it goes */
     y += 50;
-    UIRect t1 = {panel.x + PAD, y, 130, 34}, t2 = {t1.x + t1.w + 6, y, 130, 34}, t3 = {t2.x + t2.w + 6, y, 130, 34};
+    UIRect t1 = {panel.x + PAD, y, 130, 34}, t2 = {t1.x + t1.w + 6, y, 130, 34}, t3 = {t2.x + t2.w + 6, y, 130, 34},
+           t4 = {t3.x + t3.w + 6, y, 130, 34};
     if (button(t1, "SETUP", S.view == V_SETUP, true))
         S.view = V_SETUP;
     if (button(t2, "BATTLES", S.view == V_BATTLES, true))
@@ -1769,7 +2071,11 @@ void syn_arena_frame(App *a, int w, int h)
         S.view = V_TREE;
     if (over(t3))
         ui_tooltip("The tournament tree: every being joined to the one that knocked it out");
-    status_line(ui_rect(t3.x + t3.w + 18, y, right - t3.x - t3.w - 18, 34), running);
+    if (button(t4, "RECORD", S.view == V_RECORD, true))
+        S.view = V_RECORD;
+    if (over(t4))
+        ui_tooltip("Every round ever fought: its bloodline's genesis and final beings, and what they add up to");
+    status_line(ui_rect(t4.x + t4.w + 18, y, right - t4.x - t4.w - 18, 34), running);
     y += 34 + 16;
 
     UIRect area = {panel.x + PAD, y, right - panel.x - PAD, panel.y + panel.h - PAD - y};
@@ -1777,6 +2083,8 @@ void syn_arena_frame(App *a, int w, int h)
         battles_view(a, area, running);
     else if (S.view == V_TREE)
         tree_view(a, area);
+    else if (S.view == V_RECORD)
+        record_view(a, area);
     else
         setup_view(a, area, running);
 
@@ -1785,10 +2093,13 @@ void syn_arena_frame(App *a, int w, int h)
 
 void syn_arena_shot_prepare(void)
 {
-    /* SYN_BIOGENESIS_SHOT_ARENA_VIEW = setup | battles | tree */
+    /* SYN_BIOGENESIS_SHOT_ARENA_VIEW = setup | battles | tree | record */
     const char *v = getenv("SYN_BIOGENESIS_SHOT_ARENA_VIEW");
     if (v) {
-        S.view = !strcmp(v, "tree") ? V_TREE : !strcmp(v, "setup") ? V_SETUP : V_BATTLES;
+        S.view = !strcmp(v, "tree")     ? V_TREE
+                 : !strcmp(v, "setup")  ? V_SETUP
+                 : !strcmp(v, "record") ? V_RECORD
+                                        : V_BATTLES;
         S.view_set = true;
     }
     const char *s = getenv("SYN_BIOGENESIS_SHOT_ARENA");
@@ -1828,6 +2139,9 @@ void syn_arena_shot_prepare(void)
 
 void syn_arena_screen_free(void)
 {
+    free(RS.order);
+    memset(&RS, 0, sizeof RS);
+    RS.version = ~0u;
     free(Tree.t);
     free(Tree.kids);
     free(Tree.byuid);
