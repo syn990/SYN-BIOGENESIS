@@ -24,6 +24,9 @@
  * 4. The count of draws between two states is the jump that joins them,
  *    and a gene drawn in a running world is found at its place in the
  *    world's stream.
+ * 5. The engine (src/syn/crack.c): every founder of a dozen worlds drawn
+ *    again from its genes, the world's seed among those its basin lists,
+ *    and a gene drawn later placed in its ancestor's stream.
  */
 #include <inttypes.h>
 #include <stdbool.h>
@@ -32,7 +35,10 @@
 
 #include "sim/genetic_code.h"
 #include "sim/jrandom.h"
+#include "sim/organism.h"
 #include "sim/params.h"
+#include "sim/world.h"
+#include "syn/crack.h"
 #include "syn/telescope.h"
 
 static int failures;
@@ -163,10 +169,71 @@ int main(void)
         counts += 2;
     }
 
+    /* 5: founders drawn again, their seeds, a later draw placed */
+    int founders = 0, basins = 0, placed = 0;
+    {
+        World w;
+        world_init(&w);
+        for (int64_t seed = 1; seed <= 12; seed++) {
+            jr_set_seed(&g_rng, seed);
+            uint64_t s0 = g_rng.seed;
+            world_genesis(&w);
+            bool changed = false;
+            for (int i = 0; i < w.norgs; i++) {
+                const GeneticCode *gc = w.orgs[i]->gc;
+                CrackAncestor a[8];
+                int na = crack_ancestors(gc, a, 8);
+                CHECK(na > 0 && a[0].changes == 0 && crack_changes(a[0].gc, gc) == 0,
+                      "seed %" PRId64 ": founder %d drawn again from its genes", seed, i + 1);
+                founders++;
+                if (na && i % 4 == 0) {
+                    static CrackSeed bs[1024];
+                    int nb = crack_basin(a[0].start, 0, bs, 1024);
+                    bool in = false;
+                    for (int k = 0; k < nb && k < 1024; k++)
+                        in |= bs[k].state == s0 && bs[k].org == i;
+                    CHECK(in, "seed %" PRId64 " among the %d seeds that make its founder %d", seed, nb, i + 1);
+                    basins++;
+                }
+                if (na && !changed && gc->ngenes >= 2) {
+                    /* its first gene's length drawn again, 54321 draws on
+                     * (a founder of one gene would have none left to know
+                     * it by) */
+                    changed = true;
+                    Gene g[CRACK_FOUNDER_GENES];
+                    for (int j = 0; j < gc->ngenes; j++)
+                        g[j] = gc->genes[j];
+                    uint64_t at = tel_jump(a[0].start, 54321);
+                    g_rng.seed = at;
+                    gene_randomize_length(&g[0]);
+                    GeneticCode *m = gc_new_from_genes(g, gc->ngenes, gc->symmetry, gc->mirror,
+                                                       gc->disperse_children);
+                    CrackAncestor b[8];
+                    int nb = crack_ancestors(m, b, 8);
+                    CrackDraw d[8];
+                    int nd = nb ? crack_draws(m, &b[0], d, 8) : 0;
+                    CHECK(nb && b[0].start == a[0].start && b[0].changes == 1,
+                          "seed %" PRId64 ": a changed founder's ancestor", seed);
+                    CHECK(nd >= 1 && d[0].gene == 0 && !d[0].angle && d[0].place == 54321,
+                          "seed %" PRId64 ": its changed length placed 54321 draws on", seed);
+                    placed++;
+                    crack_ancestors_free(b, nb);
+                    gc_unref(m);
+                }
+                crack_ancestors_free(a, na);
+            }
+        }
+        world_free(&w);
+    }
+
     if (!failures)
         printf("telescope: %d jumps land where single draws do, seeds as java.util.Random keeps "
                "them, %d gene draws cracked back to their states (%d candidate state%s at most), "
                "%d counts of draws between states\n",
                jumps, ncrack, most, most == 1 ? "" : "s", counts);
+    if (!failures)
+        printf("telescope: the engine drew %d founders again from their genes, found %d worlds among their "
+               "founders' seeds and placed %d later draws\n",
+               founders, basins, placed);
     return failures != 0;
 }

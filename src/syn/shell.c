@@ -1028,7 +1028,7 @@ int syn_shell_menu(int w, int h)
 SDL_Rect syn_shell_card_rect(int w, int h)
 {
     /* clear of the minimap at the right, unless the window is too narrow */
-    int cw = w - 280 < 700 ? w - 280 : 700;
+    int cw = w - 280 < 800 ? w - 280 : 800;
     if (cw < 520)
         cw = w - 32 < 520 ? w - 32 : 520;
     int ch = 196;
@@ -1095,28 +1095,37 @@ int syn_shell_card(int w, int h, const ShellCard *c)
             skin_fill(ui_rect(bx + lw + (float)i * (sw + 2), by + 1, sw, 12), on, i < lit ? 1.0f : 0.16f);
     }
 
-    /* what can be done to it, along the bottom */
-    float ay = r.y + r.h - 10 - 30, ax = r.x + 10;
+    /* what can be done to it, along the bottom: named, closer together if
+     * that is what it takes, or as icons alone (named in their tooltips) */
+    float ay = r.y + r.h - 10 - 30, ax = r.x + 10, text = 0, room = r.w - 20;
+    for (int i = 0; i < c->nactions; i++)
+        text += text_w(fo->small_bold, c->actions[i].label);
+    int n = c->nactions;
+    int tier = text + (float)n * 40 + (float)(n - 1) * 6 <= room   ? 0
+               : text + (float)n * 33 + (float)(n - 1) * 4 <= room ? 1
+                                                                   : 2;
+    float gap = tier ? 4 : 6;
     for (int i = 0; i < c->nactions; i++) {
         const ShellCommand *a = &c->actions[i];
-        float bw = 8 + 16 + 6 + text_w(fo->small_bold, a->label) + 10;
+        bool icon_only = tier == 2 && a->icon;
+        float bw = icon_only ? 38 : (tier ? 33 : 40) + text_w(fo->small_bold, a->label);
         if (ax + bw > r.x + r.w - 10)
             break;
         UIRect b = {ax, ay, bw, 30};
         bool hv = !a->disabled && over(b);
         Tone tone = skin_button_chrome(b, (WidgetState){.hover = hv, .active = a->on, .disabled = a->disabled}, true);
         Rgb fg = skin_tone(a->disabled ? TONE_MUTED : tone);
-        float bx = b.x + 8, bcy = b.y + 14;
+        float bcy = b.y + 14;
         if (a->icon)
-            mid(fo->icon, a->icon, bx + 8, bcy, fg, ALIGN_CENTER);
-        bx += 22;
-        mid(fo->small_bold, a->label, bx, bcy, fg, ALIGN_LEFT);
+            mid(fo->icon, a->icon, icon_only ? b.x + b.w / 2 : b.x + (tier ? 14 : 16), bcy, fg, ALIGN_CENTER);
+        if (!icon_only)
+            mid(fo->small_bold, a->label, b.x + (tier ? 26 : 30), bcy, fg, ALIGN_LEFT);
         if (hv) {
             ui_tooltip(a->tip ? a->tip : a->label);
             if (clicked(b))
                 got = a->id;
         }
-        ax += bw + 6;
+        ax += bw + gap;
     }
     ui_layer_end();
     return got;

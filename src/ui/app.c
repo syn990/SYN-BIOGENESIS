@@ -633,7 +633,8 @@ typedef enum {
     A_FIT,
     A_FAMILY, /* the selected organism's species, in the family tree */
     A_MINIMAP,
-    A_KEEP, /* the selected organism's code into the being library */
+    A_KEEP,  /* the selected organism's code into the being library */
+    A_WHERE, /* where it lives: its genesis ancestor and seeds, in the telescope */
     /* SYN-OS's screens and shell */
     A_WORLD,
     A_LIBRARY,
@@ -986,6 +987,14 @@ static void do_action(App *a, Action act)
             syn_library_keep(a, b->gc, "Saved", sp[0] ? sp : "ORGANISM", origin);
         }
         break;
+    case A_WHERE:
+        if (b) {
+            char sp[64];
+            syn_stats_species(b, sp, sizeof sp);
+            syn_telescope_find(b->gc, sp[0] ? sp : "this organism");
+            synos_set_screen(SYNOS_TELESCOPE);
+        }
+        break;
     default:
         if (act >= A_LOOK && act <= A_LOOK_LAST)
             syn_set_look((Look)(act - A_LOOK));
@@ -1054,9 +1063,10 @@ static const MenuItem synos_alive[] = {{"Track", A_TRACK},
                                        {"Copy", A_COPY},
                                        {"Export...", A_EXPORT},
                                        {"Keep in the library", A_KEEP},
+                                       {"Where it lives", A_WHERE},
                                        {"Save image...", A_SAVE_IMAGE}};
 #define ALIVE_MENU (synos_active() ? synos_alive : menu_alive)
-#define ALIVE_ITEMS (synos_active() ? 10 : 9)
+#define ALIVE_ITEMS (synos_active() ? 11 : 9)
 #else
 #define ALIVE_MENU menu_alive
 #define ALIVE_ITEMS 9
@@ -1414,6 +1424,8 @@ static int synos_commands(App *a, ShellCommand *c)
         .icon = ICON_EXPORT, .disabled = !alive);
     CMD(.id = A_KEEP, .section = s, .label = "Keep in the library", .word = "keep",
         .icon = ICON_BOOKMARK, .disabled = !b);
+    CMD(.id = A_WHERE, .section = s, .label = "Where it lives: its ancestor and seeds", .word = "where",
+        .icon = ICON_DICE, .disabled = !b);
     CMD(.id = A_SAVE_IMAGE, .section = s, .label = "Save its image...", .word = "image",
         .icon = ICON_IMAGE, .disabled = !alive);
     CMD(.id = A_GENES, .section = s, .label = "Its genes in the laboratory", .key = "G",
@@ -1489,6 +1501,7 @@ static int synos_menu_items(App *a, Organism *b, ShellCommand *c)
         CMD(.id = A_COPY, .label = "Copy", .key = "Ctrl+C", .icon = ICON_COPY);
         CMD(.id = A_EXPORT, .label = "Export...", .icon = ICON_EXPORT);
         CMD(.id = A_KEEP, .label = "Keep in the library", .icon = ICON_BOOKMARK);
+        CMD(.id = A_WHERE, .label = "Where it lives", .icon = ICON_DICE);
         CMD(.id = A_SAVE_IMAGE, .label = "Save image...", .icon = ICON_IMAGE);
         CMD(.id = 0, .label = "-");
         CMD(.id = A_GENES, .label = "Its genes", .key = "G", .icon = ICON_DNA);
@@ -1563,6 +1576,8 @@ static Action synos_card(App *a, int W, int H)
                                 .tip = "Its species in the family tree"};
         t[n++] = (ShellCommand){.id = A_KEEP, .label = "Keep", .icon = ICON_BOOKMARK,
                                 .tip = "Keep its genetic code in the being library"};
+        t[n++] = (ShellCommand){.id = A_WHERE, .label = "Where", .icon = ICON_DICE,
+                                .tip = "Where it lives: its genesis ancestor, its seeds, where it reigns"};
     } else {
         t[n++] = (ShellCommand){.id = A_REVIVE, .label = "Revive", .icon = ICON_HEART_PULSE};
         t[n++] = (ShellCommand){.id = A_DISPERSE, .label = "Disperse", .icon = ICON_WIND};

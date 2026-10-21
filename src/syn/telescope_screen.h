@@ -36,7 +36,8 @@ void syn_telescope_chosen(struct App *a, const char *path);
 void syn_telescope_shot_prepare(struct App *a);
 /* Ends a search still going. */
 void syn_telescope_screen_free(void);
-/* The being to look for (WHERE A BEING LIVES); the screen opens on it. */
+/* The being to look for (WHERE A BEING LIVES), the search begun at once;
+ * the screen opens on it. */
 struct GeneticCode;
 void syn_telescope_find(const struct GeneticCode *gc, const char *name);
 

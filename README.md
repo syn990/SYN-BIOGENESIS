@@ -430,22 +430,53 @@ the generator where it was. Without a window, `syn-biogenesis --headless
   a flash down as it is drawn: the window counts it down, the jar without
   a window never does, and the original's own window would.
 
-**Where a being lives.** TELESCOPE > WHERE A BEING LIVES (or WHERE IT LIVES
-on a being in the library or the arena's record) runs the telescope the
+**Where a being lives.** TELESCOPE > WHERE A BEING LIVES (WHERE IT LIVES
+on a being in the library or the arena's record, Where on a selected
+organism's card or menu, or `where` in the console) runs the telescope the
 other way: from a being's genes to the worlds they were drawn in.
-`--telescope find FILE.bgg` does it without a window. Each gene length is
-cracked to its state, then looked for in two places. One is the seeds
-whose founders had it, each replayed until one is the being's world. The
-other is the arena's recorded rounds, whose seeds are known, so a gene's
-count of draws from a round's seed says whether that round drew it. Each
-find is a scene: a seed or round, a tick, and what is there (its gene
-drawn, the being alive, the most of it, the round ending with it). JUMP
-makes that world at that tick (`--telescope scene SEED FRAMES OUT.bgw`, or
-`scene --round I ...` for a round, its fighters and all) and opens it on
-its own thread. On a test ladder, a ladder winner's genes pointed to the two rounds that
-made it. The scene made at the tick it was first alive holds its exact
-code. How it works, and where it stops, is in
-[`docs/fade/`](docs/fade/README.md#where-a-being-lives).
+`--telescope find FILE.bgg` does it without a window, and `--telescope
+crack FILE.bgg` gives the algebra alone, in a fraction of a second. The
+seed-cracking engine behind it ([`docs/crack/`](docs/crack/README.md)):
+
+- **Its genesis ancestor, from one gene.** A founder is a fixed run of
+  draws, five before its genes and five per gene. So any gene the being
+  still has from its founder, its length cracked to the state that drew
+  it, steps back to the state the founder was begun at, and drawing again
+  from there gives the whole founder: every gene, the arms, the
+  mirroring. On 200 worlds' founders that came out exact for all 13,506
+  genes.
+- **Every seed that makes the ancestor.** Seeds a few draws apart soon
+  make the same founders from the same states (the Kruskal count), so a
+  founder is in about 14 seeds on average, sometimes 200. Each is found by
+  trying every seed up to a few hundred draws per founder before it.
+- **Its mutations, in the order they were drawn.** Each length or angle
+  the being has that its ancestor hasn't is a later draw, placed by its
+  count of draws from the ancestor.
+- **Which seed it lives in, and where it reigns.** The seeds are run the
+  likeliest first. As each run's stream passes one of the being's later
+  draws, the gene drawn there has to be in a child just made, or that
+  world isn't the being's and is given up at once, most within a few
+  hundred ticks. The scenes now include where its ancestor's bloodline is
+  left alone and where the being is alive while it is: it reigns, the
+  winning state.
+- **How likely its bloodline is to be the one left.** A plant's rate of
+  turning light into children, from its code alone (green length, mass,
+  reproduction energy, litter), weighed against the other founders'.
+
+A winner from a seed 589 world (founder 14, eight genes, seven arms) is
+found among the 62 seeds that make its ancestor in 4 seconds: its genes
+drawn at ticks 438 to 10,195, alive from 10,240, reigning at time 66. The
+arena's rounds, whose seeds are in the record, are searched as before. A
+being whose founder genes are all gone (#496, from `syn1.sbw`) still has
+its genes put in order on one stream, but which stream is lost: the fade
+([`docs/fade/`](docs/fade/README.md)).
+
+**Forge a winner.** TELESCOPE > FORGE A WINNER (`--telescope forge`) runs
+the same weighing forwards. About 13,000 seeds a second are weighed from
+their founders alone, without running a world. The ones whose likeliest
+bloodline is likeliest are run until one bloodline is left, and the being
+it is left as is the winner, to KEEP, JUMP to, or look up. Each forging
+goes on through the seeds where the last stopped.
 
 ## The ultimate being
 
@@ -1059,8 +1090,9 @@ src/syn/        the SYN edition's world view: navigation, the looks, batched dra
                 and statistics screen (stats_screen.c);
                 palette.c, the segment colours of both simulations;
                 the arena (arena*.c), its rounds' worlds (round.c) and record
-                (record.c); the dice telescope (telescope.c) and its
-                screen (telescope_screen.c); the being library (library.c) and
+                (record.c); the dice telescope (telescope.c), its
+                seed-cracking engine (crack.c) and its screen
+                (telescope_screen.c); the being library (library.c) and
                 its screen (library_screen.c); the shell over the world and its
                 screens: bar, commands, console, notifications, menus, card,
                 dialogs (shell.c); the parameters screen (params_screen.c)
@@ -1105,7 +1137,10 @@ python3 tools/colour/translate.py   # regenerates src/colour's translated files
   jump that joins them (and a gene drawn 12,345 draws in is found there),
   and the seed of a world the jar saved at tick
   3,000 is found from the save and replayed identical; that save, run
-  1,000 frames on from the generator found, is the jar's own tick 4,000
+  1,000 frames on from the generator found, is the jar's own tick 4,000;
+  the engine draws every founder of 12 worlds again from its genes, finds
+  each world among the seeds that make its founders, and places a length
+  drawn 54,321 draws after a founder at that count
 - the being library, in a folder of its own: codes kept exactly, moved,
   renamed, binned and imported byte for byte, folders made and removed,
   and names that would leave the library kept inside it; and a being from

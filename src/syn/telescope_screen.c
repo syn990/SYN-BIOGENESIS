@@ -20,18 +20,22 @@
 /* Color Mod has no telescope yet (syn/telescope.h) */
 #ifndef BIO_COLOUR
 
+#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
+#include "compat.h"
 #include "io/bgg.h"
 #include "io/bgw.h"
 #include "sim/params.h"
 #include "syn/arena.h"
 #include "syn/arena_os.h"
 #include "syn/batch.h"
+#include "syn/crack.h"
 #include "syn/family.h"
 #include "syn/library_screen.h"
 #include "syn/palette.h"
@@ -46,7 +50,7 @@
 #define LINE 240
 #define HITS 400
 
-enum { M_SEED, M_BEING };
+enum { M_SEED, M_BEING, M_FORGE };
 
 /* A scene the finder found: a frame of a world where the being, or one of
  * its genes, is. */
@@ -103,6 +107,18 @@ static struct {
     int cur_round, cur_cycle; /* the last "@round" told */
     int prog_k, prog_n;       /* the seed being run, of how many */
     int64_t cur_seed;
+    /* what the engine read of it (syn/crack.h) */
+    bool anc_told;
+    uint64_t anc_start;
+    int anc_proof, anc_kept, anc_changes;
+    GeneticCode *anc; /* NULL once told: none, its seed has faded */
+    struct {
+        int gene;
+        int64_t place;
+        char kind; /* l: its length drawn again, w: a gene added whole, a: its angle */
+    } draw[24];
+    int ndraws;
+    int basin[4]; /* the seeds that make the ancestor, per set */
     double started, took;
     float scroll;
     /* the jump: a scene being made, then opened */
@@ -110,11 +126,38 @@ static struct {
     ArenaProc jproc;
     char jpart[256];
     size_t njpart;
-    int jhit;
+    int jhit; /* its row among the scenes (-1: a forged winner's) */
+    Hit jh;   /* the scene being made */
     int64_t jframe_now;
     char jpath[1200];
     Batch b;
 } F;
+
+/* a winner from the dice: seeds weighed by their founders alone, the
+ * likeliest run until one bloodline is left (syn/crack.h) */
+#define FORGED 32
+static struct {
+    bool running, done;
+    ArenaProc proc;
+    char part[4096];
+    size_t npart;
+    int64_t scan, from, next_from;
+    int top;
+    int64_t scanned;
+    int prog_k, prog_n;
+    int w, h, n; /* the world forged in: the arena's */
+    char dir[1200];
+    struct {
+        int64_t seed;
+        int win, lone, t, copies, changes;
+        double chance;
+        GeneticCode *gc;
+    } r[FORGED];
+    int nr;
+    char last[LINE];
+    double started, took;
+    float scroll;
+} G = {.scan = 20000, .top = 8, .next_from = 1};
 
 static SDL_Rect sdl(UIRect r)
 {
@@ -199,6 +242,21 @@ static void log_add(const char *s)
         copy(T.log[T.first], LINE, s);
         T.first = (T.first + 1) % LOG;
     }
+}
+
+/* the configuration folder, made if it isn't there yet (a first run):
+ * the searches' files go in it */
+static void config_dir_make(void)
+{
+    const char *dir = params_config_dir();
+    char parent[1024];
+    snprintf(parent, sizeof parent, "%s", dir);
+    char *slash = strrchr(parent, '/');
+    if (slash) {
+        *slash = '\0';
+        mkdir(parent, 0755);
+    }
+    mkdir(dir, 0755);
 }
 
 /* ---- the search ---- */
@@ -311,6 +369,7 @@ static void choose(const char *path, const char *shown)
 static void this_world(App *a)
 {
     char path[1200], err[256];
+    config_dir_make();
     snprintf(path, sizeof path, "%s/telescope-world.bgw", params_config_dir());
     if (!bgw_save(&a->world, path, err, sizeof err)) {
         char msg[400];
@@ -365,12 +424,15 @@ static void jump_stop(void)
     F.jumping = false;
 }
 
+static void find_begin(void);
+
 void syn_telescope_find(const GeneticCode *gc, const char *name)
 {
     find_stop();
     jump_stop();
     T.mode = M_BEING;
     snprintf(F.name, sizeof F.name, "%s", name && name[0] ? name : "this being");
+    config_dir_make();
     snprintf(F.path, sizeof F.path, "%s/telescope-being.bgg", params_config_dir());
     FILE *f = fopen(F.path, "wb");
     if (f) {
@@ -383,8 +445,14 @@ void syn_telescope_find(const GeneticCode *gc, const char *name)
     F.nhits = F.nlog = F.nsets = 0;
     F.done = false;
     F.scroll = 0;
+    F.anc_told = false;
+    gc_unref(F.anc);
+    F.anc = NULL;
+    F.ndraws = 0;
     if (!F.gc)
         say("The being couldn't be kept for the search");
+    else
+        find_begin();
 }
 
 static void find_begin(void)
@@ -396,6 +464,12 @@ static void find_begin(void)
     F.npart = 0;
     F.cur_round = -1;
     F.prog_k = F.prog_n = 0;
+    F.anc_told = false;
+    gc_unref(F.anc);
+    F.anc = NULL;
+    F.ndraws = 0;
+    for (int i = 0; i < 4; i++)
+        F.basin[i] = -1;
     /* the parameters as saved, and the arena's world if it differs */
     int w, h, n;
     syn_arena_init();
@@ -429,6 +503,37 @@ static void find_line(const char *s)
         F.prog_n = c;
         return;
     }
+    unsigned long long st;
+    if (!strcmp(s, "@ancestor none")) {
+        F.anc_told = true;
+        return;
+    }
+    if (sscanf(s, "@ancestor %llx %d %d %d", &st, &a, &b, &c) == 4) {
+        F.anc_told = true;
+        F.anc_start = st;
+        F.anc_proof = a;
+        F.anc_kept = b;
+        F.anc_changes = c;
+        gc_unref(F.anc);
+        F.anc = crack_founder_at(st);
+        return;
+    }
+    char dk;
+    if (sscanf(s, "@draw %d %lld %c", &a, &frame, &dk) == 3) {
+        if (F.ndraws < 24) {
+            F.draw[F.ndraws].gene = a;
+            F.draw[F.ndraws].place = frame;
+            F.draw[F.ndraws++].kind = dk;
+        }
+        return;
+    }
+    if (sscanf(s, "@basin %d %d", &a, &b) == 2) {
+        if (a >= 0 && a < 4)
+            F.basin[a] = b;
+        return;
+    }
+    if (!strncmp(s, "@seed ", 6))
+        return;
     if (sscanf(s, "@set %d %d %d %d", &a, &b, &c, &d) == 4) {
         if (a >= 0 && a < 4) {
             F.set[a].w = b;
@@ -529,10 +634,13 @@ static void jump_line(const char *s)
     }
 }
 
-static void jump_begin(int i)
+/* The scene made by this program again, then opened: a round of the
+ * record, or a seed's world (whn: its size and first organisms, NULL: the
+ * parameters as saved). */
+static void jump_spawn(const Hit *h, const int *whn, int row)
 {
     jump_stop();
-    const Hit *h = &F.hit[i];
+    config_dir_make();
     snprintf(F.jpath, sizeof F.jpath, "%s/telescope-scene.bgw", params_config_dir());
     char a1[32], a2[32], ws[16], hs[16], ns[16];
     const char *args[12];
@@ -550,10 +658,10 @@ static void jump_begin(int i)
     args[n++] = a2;
     args[n++] = F.jpath;
     args[n++] = "--progress";
-    if (!h->round && h->set >= 0 && h->set < F.nsets && h->set > 0) {
-        snprintf(ws, sizeof ws, "%d", F.set[h->set].w);
-        snprintf(hs, sizeof hs, "%d", F.set[h->set].h);
-        snprintf(ns, sizeof ns, "%d", F.set[h->set].n);
+    if (!h->round && whn) {
+        snprintf(ws, sizeof ws, "%d", whn[0]);
+        snprintf(hs, sizeof hs, "%d", whn[1]);
+        snprintf(ns, sizeof ns, "%d", whn[2]);
         args[n++] = "--world";
         args[n++] = ws;
         args[n++] = hs;
@@ -568,8 +676,22 @@ static void jump_begin(int i)
         return;
     }
     F.jumping = true;
-    F.jhit = i;
+    F.jhit = row;
+    F.jh = *h;
     F.jframe_now = 0;
+}
+
+static void jump_begin(int i)
+{
+    const Hit *h = &F.hit[i];
+    int whn[3];
+    bool other = !h->round && h->set > 0 && h->set < F.nsets;
+    if (other) {
+        whn[0] = F.set[h->set].w;
+        whn[1] = F.set[h->set].h;
+        whn[2] = F.set[h->set].n;
+    }
+    jump_spawn(h, other ? whn : NULL, i);
 }
 
 static void poll_jump(App *a)
@@ -584,7 +706,7 @@ static void poll_jump(App *a)
     }
     /* opened with the generator where it was there: the world goes on as
      * it went on */
-    const Hit *h = &F.hit[F.jhit];
+    const Hit *h = &F.jh;
     app_file_chosen(a, FD_OPEN_WORLD, F.jpath);
     g_rng.seed = g_jstate & ((1ULL << 48) - 1);
     char msg[400];
@@ -615,6 +737,14 @@ static void hit_text(const Hit *h, char *out, size_t n)
         snprintf(out, n, "the round ended with it (%d living)", h->n);
     else if (!strcmp(h->kind, "genesis"))
         snprintf(out, n, "its bloodline began the round as it");
+    else if (!strcmp(h->kind, "ancestor"))
+        snprintf(out, n, "its genesis ancestor, founder %d of the world", h->n);
+    else if (!strcmp(h->kind, "lone"))
+        snprintf(out, n, "its ancestor's bloodline alone: all %d living descend from it", h->n);
+    else if (!strcmp(h->kind, "reigns"))
+        snprintf(out, n, "it reigns: %d of it alive, its bloodline the only one", h->n);
+    else if (!strcmp(h->kind, "gone"))
+        snprintf(out, n, "its ancestor's bloodline dies out");
     else
         snprintf(out, n, "%s", h->kind);
 }
@@ -704,9 +834,58 @@ static void being_view(App *a, float x, float y, float tw, float bottom)
     }
     y += 110 + 16;
 
-    /* the search's last words */
+    /* what the engine read of it: its genesis ancestor and its later draws */
+    if (F.anc_told && F.anc) {
+        UIRect ap = {x, y, 150, 78};
+        body(ap, F.anc);
+        float ax = ap.x + ap.w + 18, aw = x + tw - ax;
+        float lh2 = skin_text_height(fo->small) + 4;
+        skin_text(fo->small_bold, "ITS GENESIS ANCESTOR", ax, y, TONE_ACCENT, ALIGN_LEFT);
+        float ty = y + skin_text_height(fo->small_bold) + 5;
+        char plan[200];
+        syn_family_plan(F.anc, plan, sizeof plan);
+        skin_text(fo->small, skin_fit(fo->small, plan, aw, fit, sizeof fit), ax, ty, TONE_TEXT, ALIGN_LEFT);
+        ty += lh2;
+        snprintf(line, sizeof line, "drawn again from state 0x%012" PRIx64 "  ·  %d of its %d genes kept, %d mutation%s at"
+                 " the fewest", F.anc_start, F.anc_kept, F.gc ? F.gc->ngenes : 0, F.anc_changes,
+                 F.anc_changes == 1 ? "" : "s");
+        for (int i = 0; i < F.nsets && i < 4; i++)
+            if (F.basin[i] >= 0) {
+                size_t k = strlen(line);
+                snprintf(line + k, sizeof line - k, "%sa founder in %d seed%s with %d x %d and %d first organisms",
+                         k ? "  ·  " : "", F.basin[i], F.basin[i] == 1 ? "" : "s", F.set[i].w, F.set[i].h, F.set[i].n);
+            }
+        if (line[0])
+            skin_text(fo->small, skin_fit(fo->small, line, aw, fit, sizeof fit), ax, ty, TONE_MUTED, ALIGN_LEFT);
+        ty += lh2;
+        line[0] = '\0';
+        for (int i = 0; i < F.ndraws; i++) {
+            size_t k = strlen(line);
+            const char *what = F.draw[i].kind == 'a' ? "angle" : F.draw[i].kind == 'w' ? "gene, added" : "length";
+            if (F.draw[i].place >= 0)
+                snprintf(line + k, sizeof line - k, "%sgene %d's %s at draw %" PRId64, k ? "  ·  " : "Drawn since: ",
+                         F.draw[i].gene, what, F.draw[i].place);
+            else
+                snprintf(line + k, sizeof line - k, "%sgene %d's %s in another stream", k ? "  ·  " : "Drawn since: ",
+                         F.draw[i].gene, what);
+        }
+        if (!F.ndraws)
+            snprintf(line, sizeof line, "None of its genes drawn since: it is in every one of those worlds from tick 0"
+                                        " or comes of it by what can't be placed (colours, arms, genes dropped)");
+        skin_text(fo->small, skin_fit(fo->small, line, aw, fit, sizeof fit), ax, ty, TONE_MUTED, ALIGN_LEFT);
+        y += ap.h + 14;
+    } else if (F.anc_told) {
+        y = para(fo->small,
+                 "No genesis ancestor: none of its genes is still a founder's with another of its draws to prove it. "
+                 "Its seed has faded from it; only the arena's rounds can place it.",
+                 x, y, tw, TONE_MUTED) +
+            10;
+    }
+
+    /* the search's last words: fewer once there are scenes to show */
     float lh = skin_text_height(fo->small) + 3;
-    float logh = (float)F.nlog * lh;
+    int nlog = F.nhits && F.nlog > 3 ? 3 : F.nlog;
+    float logh = (float)nlog * lh;
     /* the scenes, by world */
     UIRect list = {x, y, tw, bottom - y - logh - 10};
     if (list.h > 60 && F.nhits) {
@@ -745,7 +924,9 @@ static void being_view(App *a, float x, float y, float tw, float bottom)
                 skin_fill(row, skin_theme()->accent, over(row) ? 0.12f : 0.05f);
                 char what[200];
                 hit_text(hh_, what, sizeof what);
-                skin_text(fo->body, what, row.x + 12, row.y + 9, TONE_TEXT, ALIGN_LEFT);
+                skin_text(fo->body, what, row.x + 12, row.y + 9,
+                          !strcmp(hh_->kind, "reigns") ? TONE_GOOD : !strcmp(hh_->kind, "gone") ? TONE_MUTED : TONE_TEXT,
+                          ALIGN_LEFT);
                 snprintf(line, sizeof line, "tick %" PRId64 "  ·  time unit %" PRId64, hh_->frame, hh_->frame / 256);
                 skin_text(fo->small, line, row.x + row.w - 150, row.y + 11, TONE_MUTED, ALIGN_RIGHT);
                 UIRect jb = {row.x + row.w - 130, row.y + 3, 120, row.h - 6};
@@ -765,15 +946,243 @@ static void being_view(App *a, float x, float y, float tw, float bottom)
              x, y, tw, TONE_WARN);
     }
     float ly = bottom - logh;
-    for (int i = 0; i < F.nlog; i++)
-        skin_text(fo->small, skin_fit(fo->small, F.log[i], tw, fit, sizeof fit), x, ly + (float)i * lh,
-                  TONE_MUTED, ALIGN_LEFT);
+    for (int i = 0; i < nlog; i++)
+        skin_text(fo->small, skin_fit(fo->small, F.log[F.nlog - nlog + i], tw, fit, sizeof fit), x,
+                  ly + (float)i * lh, TONE_MUTED, ALIGN_LEFT);
     if (F.jumping) {
-        snprintf(line, sizeof line, "Making the scene: tick %" PRId64 " of %" PRId64, F.jframe_now,
-                 F.hit[F.jhit].frame);
+        snprintf(line, sizeof line, "Making the scene: tick %" PRId64 " of %" PRId64, F.jframe_now, F.jh.frame);
         say(line);
     }
     (void)a;
+}
+
+/* ---- a winner from the dice ---- */
+
+static void forge_stop(void)
+{
+    if (G.running)
+        arena_os_end(&G.proc);
+    G.running = false;
+}
+
+static void forge_clear(void)
+{
+    for (int i = 0; i < G.nr; i++)
+        gc_unref(G.r[i].gc);
+    G.nr = 0;
+}
+
+static void forge_begin(void)
+{
+    forge_stop();
+    forge_clear();
+    G.done = false;
+    G.scanned = 0;
+    G.prog_k = G.prog_n = 0;
+    G.npart = 0;
+    G.last[0] = '\0';
+    G.scroll = 0;
+    /* each forging goes on where the last left off: the seeds in order */
+    G.from = G.next_from;
+    syn_arena_init();
+    syn_arena_world(&G.w, &G.h, &G.n);
+    config_dir_make();
+    snprintf(G.dir, sizeof G.dir, "%s/telescope-forge", params_config_dir());
+    if (mkdir(G.dir, 0755) != 0 && errno != EEXIST) {
+        say("The forge has nowhere to put its winners");
+        return;
+    }
+    char from[32], scan[32], top[16], ws[16], hs[16], ns[16];
+    snprintf(from, sizeof from, "%" PRId64, G.from);
+    snprintf(scan, sizeof scan, "%" PRId64, G.scan);
+    snprintf(top, sizeof top, "%d", G.top);
+    snprintf(ws, sizeof ws, "%d", G.w);
+    snprintf(hs, sizeof hs, "%d", G.h);
+    snprintf(ns, sizeof ns, "%d", G.n);
+    const char *args[] = {"--telescope", "forge", "--progress", "--from", from, "--scan", scan, "--top",
+                          top, "--out", G.dir, "--world", ws, hs, ns};
+    char err[300];
+    if (!arena_os_spawn(&G.proc, args, 15, err, sizeof err)) {
+        char msg[400];
+        snprintf(msg, sizeof msg, "The forge didn't start: %s", err);
+        say(msg);
+        return;
+    }
+    G.running = true;
+    G.started = arena_os_now();
+    G.next_from = G.from + G.scan;
+}
+
+static void forge_line(const char *s)
+{
+    long long seed, scanned, total;
+    int win, lone, t, copies, changes, a, b, c;
+    double chance;
+    char path[1200];
+    if (sscanf(s, "@scan %lld %lld", &scanned, &total) == 2) {
+        G.scanned = scanned;
+    } else if (sscanf(s, "@progress %d %d %d", &a, &b, &c) == 3) {
+        G.prog_k = b;
+        G.prog_n = c;
+    } else if (sscanf(s, "@forge %lld %d %d %d %lf %d %d", &seed, &win, &lone, &t, &chance, &copies, &changes) == 7) {
+        if (G.nr < FORGED) {
+            G.r[G.nr].seed = seed;
+            G.r[G.nr].win = win;
+            G.r[G.nr].lone = lone;
+            G.r[G.nr].t = t;
+            G.r[G.nr].copies = copies;
+            G.r[G.nr].changes = changes;
+            G.r[G.nr].chance = chance;
+            G.r[G.nr++].gc = NULL;
+        }
+    } else if (sscanf(s, "@file %lld %1199[^\n]", &seed, path) == 2) {
+        for (int i = 0; i < G.nr; i++)
+            if (G.r[i].seed == seed && !G.r[i].gc) {
+                char err[200];
+                G.r[i].gc = bgg_read(path, err, sizeof err);
+            }
+    } else if (!strcmp(s, "@done")) {
+        G.done = true;
+    } else if (s[0] != '@') {
+        copy(G.last, sizeof G.last, s);
+    }
+}
+
+static void poll_forge(void)
+{
+    if (G.running && !child_lines(&G.proc, G.part, sizeof G.part, &G.npart, forge_line)) {
+        arena_os_end(&G.proc);
+        G.running = false;
+        G.took = arena_os_now() - G.started;
+        if (!G.done)
+            say("The forge stopped before it could say");
+    }
+}
+
+static void forge_view(App *a, float x, float y, float tw, float bottom)
+{
+    const Fonts *fo = synos_fonts();
+    char line[400], fit[1200];
+    y = para(fo->body,
+             "A winner from the dice. Each seed's founders are made without running its world and weighed by how "
+             "fast each turns light into children. Weighed so, the fittest founder's bloodline was the one left in "
+             "45% of 240 worlds run to the end, and 46% of 240 it wasn't fitted on, against 7% by chance. The seeds "
+             "whose likeliest bloodline is likeliest are run until one bloodline is left, and the being it is left "
+             "as is the winner. Each forging goes on through the seeds where the last stopped.",
+             x, y, tw, TONE_MUTED) +
+        12;
+    skin_text(fo->small_bold, "SEEDS TO WEIGH", x, y, TONE_MUTED, ALIGN_LEFT);
+    skin_text(fo->small_bold, "TO RUN", x + 520, y, TONE_MUTED, ALIGN_LEFT);
+    y += skin_text_height(fo->small_bold) + 6;
+    static const int64_t scans[] = {20000, 200000, 2000000};
+    static const char *scan_s[] = {"20,000", "200,000", "2,000,000"};
+    for (int i = 0; i < 3; i++)
+        if (button((UIRect){x + (float)i * 166, y, 160, 34}, scan_s[i], G.scan == scans[i], !G.running))
+            G.scan = scans[i];
+    static const int tops[] = {4, 8, 16};
+    for (int i = 0; i < 3; i++) {
+        char t[8];
+        snprintf(t, sizeof t, "%d", tops[i]);
+        if (button((UIRect){x + 520 + (float)i * 76, y, 70, 34}, t, G.top == tops[i], !G.running))
+            G.top = tops[i];
+    }
+    y += 34 + 14;
+    UIRect go = {x, y, 200, 40};
+    if (button(go, G.running ? "STOP" : "FORGE", G.running, true)) {
+        if (G.running) {
+            forge_stop();
+            say("Stopped");
+        } else {
+            forge_begin();
+        }
+    }
+    if (over(go) && !G.running)
+        ui_tooltip("Weigh the next seeds and run the likeliest, in the arena's world");
+    double secs = G.running ? arena_os_now() - G.started : G.took;
+    if (G.running && G.prog_n)
+        snprintf(line, sizeof line, "seeds %" PRId64 " to %" PRId64 " weighed  ·  running %d of %d  ·  %.0f s", G.from,
+                 G.from + G.scan - 1, G.prog_k, G.prog_n, secs);
+    else if (G.running)
+        snprintf(line, sizeof line, "weighing seeds from %" PRId64 ": %" PRId64 " of %" PRId64 "  ·  %.0f s", G.from,
+                 G.scanned, G.scan, secs);
+    else if (G.done)
+        snprintf(line, sizeof line, "seeds %" PRId64 " to %" PRId64 ", %d x %d with %d first organisms  ·  %.0f s",
+                 G.from, G.from + G.scan - 1, G.w, G.h, G.n, secs);
+    else
+        snprintf(line, sizeof line, "next: from seed %" PRId64, G.next_from);
+    skin_text(fo->body, line, go.x + go.w + 20, y + 10, G.running ? TONE_ACCENT : TONE_MUTED, ALIGN_LEFT);
+    y += 40 + 16;
+
+    float lh = skin_text_height(fo->small) + 3;
+    UIRect list = {x, y, tw, bottom - y - (G.last[0] ? lh + 6 : 0)};
+    float rh = 74;
+    float maxs = fmaxf(0, (float)G.nr * rh - list.h);
+    if (over(list))
+        G.scroll -= ui_wheel_fy() * rh;
+    G.scroll = fminf(fmaxf(G.scroll, 0), maxs);
+    gfx_clip_push(sdl(list));
+    for (int i = 0; i < G.nr; i++) {
+        float ry = list.y + (float)i * rh - G.scroll;
+        if (ry + rh < list.y || ry > list.y + list.h)
+            continue;
+        UIRect row = {list.x, ry, list.w, rh - 6};
+        skin_fill(row, skin_theme()->accent, over(row) ? 0.12f : 0.05f);
+        body((UIRect){row.x + 6, row.y + 6, 96, row.h - 12}, G.r[i].gc);
+        float tx = row.x + 116;
+        bool acts = G.r[i].gc && G.r[i].lone >= 0;
+        UIRect bj = {row.x + row.w - 126, row.y + (row.h - 34) / 2, 118, 34};
+        UIRect bk = {bj.x - 104, bj.y, 98, 34}, bw = {bk.x - 180, bj.y, 174, 34};
+        float txw = (acts ? bw.x - 12 : row.x + row.w - 8) - tx;
+        snprintf(line, sizeof line, "SEED %" PRId64 "  ·  founder %d expected, %.0f%%", G.r[i].seed, G.r[i].win + 1,
+                 100 * G.r[i].chance);
+        skin_text(fo->body, skin_fit(fo->body, line, txw, fit, sizeof fit), tx, row.y + 10, TONE_TEXT, ALIGN_LEFT);
+        Tone tone = TONE_MUTED;
+        if (G.r[i].lone == -1)
+            snprintf(line, sizeof line, "all died by time %d", G.r[i].t);
+        else if (G.r[i].lone == -2)
+            snprintf(line, sizeof line, "more than one bloodline still at time %d", G.r[i].t);
+        else {
+            snprintf(line, sizeof line, "founder %d's bloodline alone at time %d, as %d of this being (%d mutation%s from "
+                     "that founder)%s", G.r[i].lone + 1, G.r[i].t, G.r[i].copies, G.r[i].changes,
+                     G.r[i].changes == 1 ? "" : "s", G.r[i].lone == G.r[i].win ? "  ·  as expected" : "");
+            tone = G.r[i].lone == G.r[i].win ? TONE_GOOD : TONE_TEXT;
+        }
+        skin_text(fo->small, skin_fit(fo->small, line, txw, fit, sizeof fit), tx,
+                  row.y + 12 + skin_text_height(fo->body), tone, ALIGN_LEFT);
+        if (!acts)
+            continue;
+        char name[64];
+        snprintf(name, sizeof name, "seed %" PRId64, G.r[i].seed);
+        bool busy = F.jumping && F.jhit == -1 && F.jh.seed == G.r[i].seed;
+        if (button(bj, busy ? "MAKING..." : "JUMP", busy, !F.jumping)) {
+            Hit h;
+            memset(&h, 0, sizeof h);
+            h.seed = G.r[i].seed;
+            h.frame = (int64_t)G.r[i].t * 256;
+            snprintf(h.kind, sizeof h.kind, "lone");
+            int whn[3] = {G.w, G.h, G.n};
+            jump_spawn(&h, whn, -1);
+        }
+        if (over(bj) && !F.jumping)
+            ui_tooltip("Make this world at the time its bloodline was left alone, and open it");
+        if (button(bk, "KEEP", false, true)) {
+            char origin[200];
+            snprintf(origin, sizeof origin, "forged: seed %" PRId64 ", founder %d's bloodline alone at time %d",
+                     G.r[i].seed, G.r[i].lone + 1, G.r[i].t);
+            syn_library_keep(a, G.r[i].gc, "Forged", name, origin);
+        }
+        if (over(bk))
+            ui_tooltip("Keep it in the being library, in Forged");
+        if (button(bw, "WHERE IT LIVES", false, true))
+            syn_telescope_find(G.r[i].gc, name);
+    }
+    gfx_clip_pop();
+    if (G.last[0])
+        skin_text(fo->small, skin_fit(fo->small, G.last, tw, fit, sizeof fit), x, bottom - lh, TONE_MUTED, ALIGN_LEFT);
+    if (F.jumping && F.jhit == -1) {
+        snprintf(line, sizeof line, "Making the scene: tick %" PRId64 " of %" PRId64, F.jframe_now, F.jh.frame);
+        say(line);
+    }
 }
 
 /* ---- the screen ---- */
@@ -783,6 +1192,7 @@ void syn_telescope_frame(App *a, int w, int h)
     const Fonts *fo = synos_fonts();
     poll_search();
     poll_find();
+    poll_forge();
     g_app = a;
     poll_jump(a);
     bool keys = !ui_any_modal() && !ui_text_focused() && !ui_popup_showing();
@@ -801,12 +1211,21 @@ void syn_telescope_frame(App *a, int w, int h)
     y += 50;
     float tw = right - (panel.x + PAD);
     x = panel.x + PAD;
-    UIRect t1 = {x, y, 200, 34}, t2 = {x + 206, y, 250, 34};
+    UIRect t1 = {x, y, 200, 34}, t2 = {x + 206, y, 250, 34}, t3 = {t2.x + t2.w + 6, y, 220, 34};
     if (button(t1, "A WORLD'S SEED", T.mode == M_SEED, true))
         T.mode = M_SEED;
     if (button(t2, "WHERE A BEING LIVES", T.mode == M_BEING, true))
         T.mode = M_BEING;
+    if (button(t3, "FORGE A WINNER", T.mode == M_FORGE, true))
+        T.mode = M_FORGE;
     y += 34 + 16;
+    if (T.mode == M_FORGE) {
+        forge_view(a, x, y, tw, panel.y + panel.h - PAD - skin_text_height(fo->small) - 10);
+        if (T.status[0] && SDL_GetTicks() - T.status_at < 8000)
+            skin_text(fo->small, T.status, x, panel.y + panel.h - PAD - skin_text_height(fo->small), TONE_ACCENT,
+                      ALIGN_LEFT);
+        return;
+    }
     if (T.mode == M_BEING) {
         being_view(a, x, y, tw, panel.y + panel.h - PAD - skin_text_height(fo->small) - 10);
         if (T.status[0] && SDL_GetTicks() - T.status_at < 8000)
@@ -974,10 +1393,22 @@ void syn_telescope_shot_prepare(App *a)
         const char *base = strrchr(b, '/');
         syn_telescope_find(gc, base ? base + 1 : b);
         gc_unref(gc);
-        find_begin();
         while (F.running) {
             arena_os_wait(&F.proc.from, 1, 200);
             poll_find();
+        }
+        return;
+    }
+    /* SYN_BIOGENESIS_SHOT_FORGE = how many seeds to weigh: a forging to its end */
+    const char *fg = getenv("SYN_BIOGENESIS_SHOT_FORGE");
+    if (fg) {
+        T.mode = M_FORGE;
+        G.scan = atoll(fg) > 0 ? atoll(fg) : G.scan;
+        G.top = 4;
+        forge_begin();
+        while (G.running) {
+            arena_os_wait(&G.proc.from, 1, 200);
+            poll_forge();
         }
         return;
     }
@@ -999,11 +1430,19 @@ void syn_telescope_screen_free(void)
     stop();
     find_stop();
     jump_stop();
+    forge_stop();
+    forge_clear();
     gc_unref(F.gc);
+    gc_unref(F.anc);
     batch_free(&F.b);
     memset(&F, 0, sizeof F);
     memset(&T, 0, sizeof T);
     T.follow = true;
+    int64_t next = G.next_from;
+    memset(&G, 0, sizeof G);
+    G.scan = 20000;
+    G.top = 8;
+    G.next_from = next;
 }
 
 #else

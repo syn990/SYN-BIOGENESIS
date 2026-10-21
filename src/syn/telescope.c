@@ -35,6 +35,7 @@
 #include "sim/organism.h"
 #include "sim/params.h"
 #include "sim/world.h"
+#include "syn/crack.h"
 #include "syn/arena_os.h"
 #include "syn/record.h"
 #include "syn/round.h"
@@ -962,30 +963,7 @@ static void set_params(const FindSet *s, bool defaults)
     }
 }
 
-/* A seed some of the being's genes came from: as founders' genes at
- * tick 0, and as draws its stream could have made later. */
-typedef struct {
-    uint64_t state;
-    int founders; /* the being's genes among its founders' */
-    int later;    /* its other genes, at a place in this seed's stream before 2^LATER */
-    int64_t newest; /* the latest place of those (-1: none) */
-} Origin;
-
-#define LATER 36 /* draws: a world run for years makes fewer; a wrong seed puts a gene there one time in 4096 */
 #define ROUND_ARC 30
-
-static int cmp_origin(const void *a, const void *b)
-{
-    const Origin *x = a, *y = b;
-    if (x->founders + x->later != y->founders + y->later)
-        return (y->founders + y->later) - (x->founders + x->later);
-    if (x->founders != y->founders)
-        return y->founders - x->founders;
-    /* then the one whose newest gene comes soonest: the cheapest to run */
-    if (x->newest != y->newest)
-        return x->newest < y->newest ? -1 : 1;
-    return x->state < y->state ? -1 : x->state > y->state;
-}
 
 /* What a run shows of the being: a frame and what is there. */
 typedef struct {
@@ -1082,6 +1060,118 @@ static void say_scenes(const char *head, const Scene *sc, int n)
         printf("%s %" PRId64 " %s %d %d\n", head, sc[i].frame, sc[i].kind, sc[i].n, sc[i].d);
 }
 
+#define BASIN 4096 /* seeds of an ancestor's basin kept, far more than any has */
+
+/* A seed of the ancestor's basin run and watched. Each of the being's
+ * later draws is checked as the stream passes it: the gene drawn there
+ * must be in a child just made, or this world isn't the being's and is
+ * given up at once. Then, once a time unit, the being (alive, the most of
+ * it) and the bloodlines: the ancestor's left alone, and the being alive
+ * while it is (it reigns: the winning state), or the bloodline gone.
+ * Whether the being was seen alive; why it ended, in words. */
+static bool watch_basin(World *w, uint64_t s0, int org, const CrackDraw *dr, int nd, const GeneticCode *gc,
+                        int64_t frames_max, Scene *sc, int *nsc, int64_t *to, char *why, size_t nwhy)
+{
+    int64_t place[256];
+    uint64_t bits[256];
+    int pg[256], np = 0;
+    bool angle[256];
+    for (int d = 0; d < nd && np < 256; d++)
+        if (dr[d].place >= 0) {
+            place[np] = (int64_t)tel_draws(s0, dr[d].state);
+            bits[np] = dr[d].bits;
+            angle[np] = dr[d].angle;
+            pg[np++] = dr[d].gene + 1;
+        }
+    for (int i = 0; i < w->norgs; i++)
+        w->orgs[i]->gc->lineage = (uint32_t)i + 1;
+    uint32_t line = (uint32_t)org + 1;
+    *nsc = 0;
+    sc[(*nsc)++] = (Scene){0, "ancestor", org + 1, 0};
+    int64_t alive_at = -1, lone_at = -1, peak_at = -1, f;
+    int peak = 0, copies = 0, next = 0;
+    snprintf(why, nwhy, "run to frame %" PRId64 " without it", frames_max);
+    for (f = 0; f <= frames_max; f++) {
+        if (f)
+            world_time(w);
+        if (next < np) {
+            int64_t now = (int64_t)tel_draws(s0, g_rng.seed);
+            for (; next < np && now > place[next]; next++) {
+                bool born = false;
+                for (int i = 0; i < w->norgs && !born; i++) {
+                    const GeneticCode *q = w->orgs[i]->gc;
+                    if (w->orgs[i]->removed || !q)
+                        continue;
+                    for (int j = 0; j < q->ngenes && !born; j++)
+                        born = dbits(angle[next] ? q->genes[j].theta : q->genes[j].length) == bits[next];
+                }
+                if (!born) {
+                    snprintf(why, nwhy, "not its world: its gene %d's draw, at tick %" PRId64 ", went to no child",
+                             pg[next], f);
+                    *to = f;
+                    return false;
+                }
+                if (*nsc < SCENES - 4)
+                    sc[(*nsc)++] = (Scene){f, "gene", pg[next], 0};
+            }
+        }
+        if (f && w->nframes)
+            continue;
+        int here = 0, lines = 0;
+        bool mine = false;
+        uint32_t first = 0;
+        for (int i = 0; i < w->norgs; i++) {
+            const Organism *q = w->orgs[i];
+            if (q->removed || !q->alive)
+                continue;
+            here += tel_code_distance(q->gc, gc) == 0;
+            mine |= q->gc->lineage == line;
+            if (!first)
+                first = q->gc->lineage, lines = 1;
+            else if (lines == 1 && q->gc->lineage != first)
+                lines = 2;
+        }
+        if (here && alive_at < 0) {
+            alive_at = f;
+            copies = here;
+            if (*nsc < SCENES)
+                sc[(*nsc)++] = (Scene){f, "alive", here, 0};
+        }
+        if (here > peak) {
+            peak = here;
+            peak_at = f;
+        }
+        if (!mine) {
+            if (*nsc < SCENES)
+                sc[(*nsc)++] = (Scene){f, "gone", 0, 0};
+            snprintf(why, nwhy, "its ancestor's bloodline died out at time %" PRId64 "%s", f / 256,
+                     alive_at >= 0 ? ", after it had lived" : "");
+            break;
+        }
+        if (lines == 1 && lone_at < 0) {
+            lone_at = f;
+            if (*nsc < SCENES)
+                sc[(*nsc)++] = (Scene){f, "lone", w->population, here};
+        }
+        if (lone_at >= 0 && here) {
+            if (*nsc < SCENES)
+                sc[(*nsc)++] = (Scene){f, "reigns", here, w->population};
+            snprintf(why, nwhy, "it reigns at time %" PRId64 ": its ancestor's bloodline alone, %d of it alive",
+                     f / 256, here);
+            break;
+        }
+        /* alone, with all its draws made and no sign of it for a while */
+        if (lone_at >= 0 && next >= np && f - lone_at > 256 * 64) {
+            snprintf(why, nwhy, "its ancestor's bloodline alone from time %" PRId64 ", but not as it", lone_at / 256);
+            break;
+        }
+    }
+    if (peak_at >= 0 && peak > copies && *nsc < SCENES)
+        sc[(*nsc)++] = (Scene){peak_at, "most", peak, 0};
+    *to = f > frames_max ? frames_max : f;
+    return alive_at >= 0;
+}
+
 /* A round of the arena's record as it began (syn/round.h), from the
  * parameters as saved: false if they aren't the round's any more, or a
  * fighter's code is missing. */
@@ -1129,7 +1219,7 @@ static int cmd_find(int argc, char **argv)
 {
     const char *path = NULL, *record = NULL;
     bool defaults = false, progress = false, rounds = true;
-    int64_t back = 4096, units = 2000;
+    int64_t back = 0, units = 2000;
     int top = 12, rtop = 16;
     FindSet sets[4];
     int nsets = 0;
@@ -1289,105 +1379,79 @@ static int cmd_find(int argc, char **argv)
         }
         free(rh);
     }
-    Affine prev = step_back();
-    World scratch;
-    world_init(&scratch);
-    for (int si = 0; si < nsets; si++) {
+    /* Its genesis ancestor, drawn again from one of its genes, and every
+     * seed whose genesis makes it (syn/crack.h): each run with the being's
+     * later draws checked as its stream passes them, and watched for the
+     * being and for the ancestor's bloodline left alone. */
+    /* founders drawn again take their colours from the parameters */
+    set_params(&sets[0], defaults);
+    CrackAncestor anc[8];
+    int na = crack_ancestors(gc, anc, 8);
+    CrackDraw dr[256];
+    int nd = 0;
+    bool later = false;
+    if (na) {
+        const CrackAncestor *a = &anc[0];
+        nd = crack_draws(gc, a, dr, 256);
+        printf("@ancestor 0x%012" PRIx64 " %d %d %d\n", a->start, a->proof, a->kept, a->changes);
+        printf("its genesis ancestor: %d gene%s, %d arm%s, begun at state 0x%012" PRIx64
+               "; %d of its genes kept since, %d mutation%s at the fewest\n",
+               a->gc->ngenes, a->gc->ngenes == 1 ? "" : "s", a->gc->symmetry, a->gc->symmetry == 1 ? "" : "s",
+               a->start, a->kept, a->changes, a->changes == 1 ? "" : "s");
+        for (int d = 0; d < nd; d++) {
+            printf("@draw %d %" PRId64 " %c\n", dr[d].gene + 1, dr[d].place,
+                   dr[d].angle ? 'a' : dr[d].whole ? 'w' : 'l');
+            later |= dr[d].place >= 0;
+        }
+    } else {
+        printf("@ancestor none\n");
+        printf("no genesis ancestor: none of its genes is a founder's it still has with another to prove it"
+               " (its seed has faded)\n");
+    }
+    for (int si = 0; si < nsets && na; si++) {
         set_params(&sets[si], defaults);
         printf("@set %d %d %d %d\n", si, P.world_width, P.world_height, P.initial_organisms);
-        Origin *og = NULL;
-        int nog = 0, cap = 0;
-        for (int g = 0; g < ngst; g++) {
-            uint64_t x = gst[g];
-            double length = 0;
-            /* the length this state draws */
-            uint64_t y = tel_jump(x, 0);
-            length = 2.0 + (double)draw_double(&y) * 0x1.0p-53 * 16.0;
-            uint64_t want = dbits(length);
-            for (int64_t nb = 0; nb <= back; nb++, x = (prev.a * x + prev.b) & TEL_MASK) {
-                int found, total;
-                if (!founders_have(&scratch, x, want, have, nhave, &found, &total))
-                    continue;
-                bool seen = false;
-                for (int c = 0; c < nog && !seen; c++)
-                    seen = og[c].state == x;
-                if (seen)
-                    continue;
-                if (nog == cap) {
-                    cap = cap ? cap * 2 : 64;
-                    og = realloc(og, (size_t)cap * sizeof *og);
-                    if (!og)
-                        abort();
-                }
-                Origin o = {x, found, 0, -1};
-                /* the rest of its genes in this seed's stream */
-                g_rng.seed = x;
-                world_genesis(&scratch);
-                int64_t genesis = (int64_t)tel_draws(x, g_rng.seed);
-                for (int h = 0; h < ngst; h++) {
-                    int64_t at = (int64_t)tel_draws(x, gst[h]);
-                    if (at >= genesis && at < (1LL << LATER)) {
-                        o.later++;
-                        o.newest = at > o.newest ? at : o.newest;
-                    }
-                }
-                og[nog++] = o;
-            }
-        }
-        qsort(og, (size_t)nog, sizeof *og, cmp_origin);
-        printf("%d seed%s whose founders have its genes, with %d x %d and %d first organisms\n", nog,
-               nog == 1 ? "" : "s", P.world_width, P.world_height, P.initial_organisms);
-        for (int c = 0; c < nog && c < 3; c++)
-            printf("  seed %" PRId64 ": %d of its genes among the founders', %d more in its stream\n",
-                   tel_state_seed(og[c].state), og[c].founders, og[c].later);
-        if (!nog)
-            printf("  none: every gene it has was drawn after some world's tick 0, and a gene drawn later says"
-                   " where in a stream it is, not which stream (its seed has faded)\n");
-        /* each in turn until one is its world: near twins are given up early */
+        CrackSeed *bs = malloc(BASIN * sizeof *bs);
+        if (!bs)
+            abort();
+        int nb = crack_basin(anc[0].start, back, bs, BASIN);
+        nb = nb < BASIN ? nb : BASIN;
+        printf("@basin %d %d\n", si, nb);
+        printf("%d seed%s make its ancestor a founder, with %d x %d and %d first organisms\n", nb,
+               nb == 1 ? "" : "s", P.world_width, P.world_height, P.initial_organisms);
+        for (int c = 0; c < nb; c++)
+            printf("@seed %d %" PRId64 " %d %.4f\n", si, bs[c].seed, bs[c].slot, bs[c].chance);
+        /* With later draws it lives in one of them at most, found by its
+         * draws; without, in each, and the question is where it wins. */
+        int runs = later ? nb : nb < top ? nb : top;
         bool lives = false;
-        for (int c = 0; c < nog && c < top && !lives; c++) {
-            printf("@progress %d %d %d\n", si, c + 1, nog < top ? nog : top);
+        for (int c = 0; c < runs && !(later && lives); c++) {
+            printf("@progress %d %d %d\n", si, c + 1, runs);
             set_params(&sets[si], defaults);
-            /* past its newest gene's draw, at a world's usual pace (a few
-             * thousand draws a time unit) and then some; at least `units` */
-            int64_t frames = units * 256;
-            if (og[c].newest >= 0) {
-                int64_t need = og[c].newest / 1000 + 256 * 200;
-                if (need > frames)
-                    frames = need < 20000 * 256LL ? need : 20000 * 256LL;
-            }
-            int64_t place[512];
-            int pg[512], np = 0;
-            for (int g = 0; g < ngst; g++) {
-                int64_t at = (int64_t)tel_draws(og[c].state, gst[g]);
-                if (at < (1LL << LATER)) {
-                    place[np] = at;
-                    pg[np++] = gno[g];
-                }
-            }
             World w;
             world_init(&w);
-            g_rng.seed = og[c].state;
+            g_rng.seed = bs[c].state;
             world_genesis(&w);
             Scene sc[SCENES];
             int nsc;
             int64_t to;
-            int64_t seed = tel_state_seed(og[c].state);
-            lives = watch(&w, og[c].state, place, pg, np, gc, frames, true, sc, &nsc, &to);
+            char why[200];
+            bool here = watch_basin(&w, bs[c].state, bs[c].org, dr, nd, gc, units * 256, sc, &nsc, &to, why,
+                                    sizeof why);
             world_free(&w);
-            /* a seed's scenes only once it is shown to be the being's world */
-            if (lives) {
+            if (here || !later) {
                 char head[80];
-                snprintf(head, sizeof head, "@scene %d %" PRId64, si, seed);
+                snprintf(head, sizeof head, "@scene %d %" PRId64, si, bs[c].seed);
                 say_scenes(head, sc, nsc);
             }
-            printf("  seed %" PRId64 ": %s (to frame %" PRId64 ")\n", seed,
-                   lives ? "it lives here" : "not here: a near twin, or another world", to);
+            printf("  seed %" PRId64 " (founder %d, %.0f%% to be the bloodline left): %s\n", bs[c].seed,
+                   bs[c].slot + 1, 100 * bs[c].chance, why);
+            lives |= here;
         }
-        free(og);
+        free(bs);
     }
     printf("@done\n");
-    world_free(&scratch);
+    crack_ancestors_free(anc, na);
     gc_unref(gc);
     return 0;
 }
@@ -1489,18 +1553,40 @@ static int usage(int r)
            "    --defaults         the default parameters, not the saved ones\n"
            "    --world W H N      a world W x H with N first organisms\n"
            "    --marks            also each living gene's time unit of birth\n"
-           "  find CODE.bgg        where a being lives: the seeds its genes came from (as\n"
-           "                       founders' genes, and later draws in the same stream), each\n"
-           "                       run and watched for it; lines \"@scene SET SEED FRAME KIND N D\"\n"
+           "  find CODE.bgg        where a being lives: its genesis ancestor (as crack finds\n"
+           "                       it) and every seed that makes it, the likeliest first, each\n"
+           "                       run with the being's later draws checked as its stream\n"
+           "                       passes them and watched for the being and its ancestor's\n"
+           "                       bloodline; and the arena's recorded rounds that drew its\n"
+           "                       genes. Lines \"@scene SET SEED FRAME KIND N D\", KIND one of\n"
+           "                       ancestor, gene, alive, most, lone, reigns, gone\n"
            "    --saved            search the parameters as saved (the default)\n"
            "    --world W H N      search a world W x H with N first organisms (up to 4 sets)\n"
-           "    --units U          run each seed at least U time units (default 2000)\n"
-           "    --seeds K          run at most the K seeds with most of its genes, until one\n"
-           "                       is its world (default 12)\n"
+           "    --defaults         the default parameters, not the saved ones\n"
+           "    --units U          run each seed at most U time units (default 2000)\n"
+           "    --seeds K          for a being with no later draw (found in each seed, not\n"
+           "                       one), run the K likeliest seeds (default 12)\n"
+           "    --back N           draws before the ancestor to look for its seeds (default:\n"
+           "                       as far as the founders reach)\n"
            "    --rounds K         run at most the K rounds of the record with most of its\n"
            "                       genes (default 16)\n"
            "    --record FILE      the arena's record to search (default: the configuration\n"
            "                       folder's); --no-record: none\n"
+           "  crack CODE.bgg       the algebra alone, no world run: the being's genesis\n"
+           "                       ancestor drawn again from one of its genes, its later draws\n"
+           "                       in order, and every seed whose genesis makes the ancestor,\n"
+           "                       with the chance its bloodline is the one left\n"
+           "    --defaults, --world W H N, --back N (draws to look back), --seeds K (shown)\n"
+           "  forge                a winner from the dice: seeds weighed by their founders\n"
+           "                       alone, the likeliest run until one bloodline is left\n"
+           "    --from SEED        the first seed weighed (default 1)\n"
+           "    --scan N           how many seeds to weigh (default 20000)\n"
+           "    --top K            how many of them to run (default 8)\n"
+           "    --units U          the most time units each runs (default 1500)\n"
+           "    --out DIR          each winner's being written there as seed-SEED.bgg\n"
+           "    --defaults, --world W H N, --progress\n"
+           "  basins N             how many seeds make a founder at a state, over N states\n"
+           "                       (docs/crack); --defaults, --world W H N\n"
            "  scene SEED FRAMES OUT.bgw   the world SEED makes at that frame, saved, and the\n"
            "                       generator's state there (\"@at STATE\"); --defaults, --world\n"
            "  scene --round I FRAMES OUT.bgw   the same for round I of the record (from 0),\n"
@@ -1556,6 +1642,10 @@ int syn_telescope_main(int argc, char **argv)
     }
     if (!strcmp(cmd, "fade")) {
         int r = cmd_fade(argc, argv);
+        return r == 2 ? usage(2) : r;
+    }
+    if (!strcmp(cmd, "crack") || !strcmp(cmd, "forge") || !strcmp(cmd, "basins")) {
+        int r = crack_main(argc, argv);
         return r == 2 ? usage(2) : r;
     }
     return usage(strcmp(cmd, "--help") && strcmp(cmd, "-h") && strcmp(cmd, "") ? 2 : 0);
