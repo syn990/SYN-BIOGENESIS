@@ -691,8 +691,8 @@ fields missing.
 
 ## The SYN edition
 
-Both simulations have a second interface, SYN-OS: the one SYN-TREK and
-SYN-DEBT share, with a new world view. It runs the same simulation as the
+Both simulations have a second interface, SYN-OS: the one SYN-DEBT
+uses, with a new world view. It runs the same simulation as the
 Heritage edition, so a seed gives the same world bit for bit; only how the
 world is shown and handled differs.
 
@@ -774,7 +774,7 @@ waybar's are.
   a 3px accent border, for five seconds.
 - **The right-click menu**, labwc's: titled with what was clicked
   (ORGANISM 6, CORPSE 12, THE WORLD AT 280, 459), with icons and keys.
-- **The organism card**, SYN-TREK's target card: the selected organism in
+- **The organism card**, a target card: the selected organism in
   a labwc title bar with its state and species, its body, its figures in
   wells, two segmented bars (its energy towards a child, how much of its
   life has gone), and its actions.

@@ -1,8 +1,7 @@
 /* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
  * Copyright (C) 2026 syn990
  *
- * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-TREK and
- * SYN-DEBT.
+ * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-DEBT.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,7 +17,7 @@
 /* The interface of Biogenesis 0.9 in the one program: Heritage edition
  * (Biogenesis' own window, as the faithful build has it, and what the
  * first run shows) or SYN-OS, the interface
- * SYN-TREK and SYN-DEBT share: a main menu over the living world, an
+ * it shares with SYN-DEBT: a main menu over the living world, an
  * options screen, and every panel, bar, button, tab and field drawn in a
  * SYN-OS theme (synos/skin.h). Switched in OPTIONS (or the View menu in
  * Heritage), live, and remembered with the theme in

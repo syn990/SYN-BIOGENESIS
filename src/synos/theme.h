@@ -1,8 +1,8 @@
 /* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
  * Copyright (C) 2026 syn990
  *
- * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-TREK and
- * SYN-DEBT; this file follows SYN-DEBT's src/core/theme.h.
+ * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-DEBT; this
+ * file follows SYN-DEBT's src/core/theme.h.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the

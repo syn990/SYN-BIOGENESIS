@@ -1,9 +1,9 @@
 /* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
  * Copyright (C) 2026 syn990
  *
- * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-TREK and
- * SYN-DEBT; this file follows SYN-DEBT's src/ui/skin.c, drawn with
- * SDL_Renderer instead of OpenGL (the shapes and colours are the same).
+ * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-DEBT; this
+ * file follows SYN-DEBT's src/ui/skin.c, drawn with SDL_Renderer instead
+ * of OpenGL (the shapes and colours are the same).
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -733,7 +733,7 @@ void skin_keycap(UIRect r, TTF_Font *f, const char *key) {
         ink = t->text;
         break;
     default: {
-        /* SYN-TREK's key: a pale face, its front edge darker */
+        /* the key: a pale face, its front edge darker */
         Rgb face = t->light ? mix(t->text, t->bg, 0.18) : mix(t->text, t->bg, 0.22);
         rect(r.x, r.y, r.w, r.h - 3, face, 1);
         rect(r.x, r.y + r.h - 3, r.w, 3, mix(face, (Rgb){0, 0, 0}, 0.45), 1);

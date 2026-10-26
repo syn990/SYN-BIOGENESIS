@@ -30,7 +30,7 @@
  *                  window adds
  *   the menu       labwc's, on a right click
  *   the hints      SYN-OS's TUIs' status line, along the bottom
- *   the card       the selected organism, SYN-TREK's target card
+ *   the card       the selected organism, as a target card
  *
  * Both simulations' windows drive it with their own commands (their
  * actions) and figures. Text the machine writes is in SYN Terminal

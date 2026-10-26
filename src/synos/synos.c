@@ -1,9 +1,9 @@
 /* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
  * Copyright (C) 2026 syn990
  *
- * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-TREK and
- * SYN-DEBT; the main menu and options screens follow SYN-DEBT's
- * src/screens/main_menu.c and options.c.
+ * Part of the SYN-OS interface SYN-BIOGENESIS shares with SYN-DEBT; the
+ * main menu and options screens follow SYN-DEBT's src/screens/main_menu.c
+ * and options.c.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -393,7 +393,7 @@ SynosAction synos_menu_frame(int w, int h, bool can_continue)
     int mx, my;
     ui_mouse(&mx, &my);
 
-    /* SYN-TREK's grid: 260px buttons, 48 tall, 30 across and 12 down,
+    /* the grid: 260px buttons, 48 tall, 30 across and 12 down,
      * starting 40% of the way down; ARENA and LIBRARY, then TELESCOPE
      * (Biogenesis 0.9's only) and QUIT */
     float btn_h = 48.0f, gap_x = 30.0f, gap_y = 12.0f;
@@ -490,7 +490,7 @@ SynosAction synos_options_frame(int w, int h)
         return SYNOS_NONE;
     }
 
-    /* a panel over the world, like SYN-TREK's Legends board */
+    /* a panel over the world */
     float pw = (float)w * 0.86f, ph = (float)h * 0.84f;
     if (pw > 1500)
         pw = 1500;
