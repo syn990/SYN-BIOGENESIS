@@ -1001,6 +1001,25 @@ into one from outside the program is in the library too.
   removes them for good. Folders are made, renamed, and removed when
   empty. Names keep to what every file system takes.
 
+### The field guide and kinds of being
+
+FIELD GUIDE, under the library's folders, says what every colour does in
+the simulation shown: 0.9's seven, or Color Mod's 46 and the colours its
+segments turn for a while (withered, frozen, old bark...), by job, each in
+a line and then in full, as the code does it with the default parameters
+(src/syn/guide.c). In the SYN-OS laboratory each colour's line is its
+tooltip, in the colour list and on the colour box. The console has
+`colour [NAME]`, `kind` and `guide`.
+
+Every being also has a kind, as SYN-TREK classes its planets: read from
+how much of its body does each job (Plant, Drifter, Fortress, Nettle,
+Blight, Half-plant, Grazer, Hunter, Omnivore, Raider, Scavenger, Parasite,
+Predator, Virus, Killer, Husk), with up to three traits ("armoured,
+fertile"), and a sentence composed from SYN-TREK's book of words
+(`assets/lexicon/species.txt`, src/syn/lexicon.c), tagged by its kind and
+seeded by its code, so a code is described the same way every time. It is
+on a selected organism's card and on the library's beings.
+
 ### The arena's record
 
 The arena (ARENA on the SYN-OS menu, or `--arena` without a window) runs
@@ -1027,6 +1046,77 @@ order of its fighters and with and without newcomers. It is kept as
 replayed only if the replay ends with the very being the ladder kept, byte
 for byte; otherwise as the ladder alone has it. `--arena --record` prints
 the record.
+
+### Create a winner
+
+**Create a winner** sits beside Create randomly in SYN-OS: on the world's
+right-click menu, under NEW LIFE in the commands, and `winner` in the
+console. Where a
+random organism is a throw of the dice, a winner is worked out for the
+world as it stands, the moment it is asked for: a being whose bloodline
+will be all that lives in it.
+
+Nothing in a world is left to chance once its state and the random
+generator's are known (see [lapsadian determinism](#lapsadian-determinism-and-drift)).
+A world saved and opened again with the generator's state goes on exactly
+as the one left running, in both simulations. So what a code would do in
+the world is not a likelihood but a fact, and the search reads it by
+running it, on every core:
+- **The world waits:** it is paused and saved with its parameters and the
+  generator's state (`winner-0.9/` or `winner-colour/` in the configuration
+  folder).
+- **Candidates:**
+  - the world's eight commonest codes, the bloodlines already winning
+    there
+  - the simulation's own mutations of the three commonest
+  - the being library (all but the Bin)
+  - random codes. In 0.9 these are the fittest 8 of 600 by the plant
+    fitness the telescope's seed cracking uses, at the world's CO2.
+- **Places:** where it was asked for, and the two most open places in the
+  world, the farthest from every organism.
+- **Runs:** each candidate is pasted at each place as the window pastes a
+  code, and the world runs on from there in a worker, this program again.
+  - The first runs last 4 time units, then the best third run 16, 64 and
+    256.
+  - A run stops when the bloodline dies out.
+  - A bloodline that becomes all that lives must still be alive at 256.
+    The last organism of a dying world is no winner.
+  - While time is left (180 seconds) and none owns the world, the best
+    are mutated and run again.
+
+The winner is pasted where its run put it, selected and tracked, and the
+world goes on as it was (running or paused). The notification says what
+was calculated: "its bloodline is all that lives from time T". When time
+T comes, the window hashes the world and says whether it went as
+calculated. It does unless something else is done to the world in
+between. If the world moves on while the search works, nothing is placed.
+
+Without a window, `syn-biogenesis [--colour] --winner WORLD` prints the
+same search (`--help` lists its options). It prints the census, the places
+and the rounds of runs, then the ten best with what each did, and keeps
+`winner.bgg`, `winners.txt` and every candidate's `.bgg`.
+
+Some results:
+- **0.9 from the command line:** a world grown for 78 time units on the
+  saved parameters (46 living, 25 codes), with 64-unit runs. It searched
+  37 candidates at 3 places, 144 runs in about a minute. The champion bred
+  for `syn1.sbw` ([`docs/being/`](docs/being/README.md), in the library as
+  Imported/ultimate) won at the most open place. All 56 living were its
+  bloodline at time 141, and 57 at time 142.
+- **The same world in the window:** the generator was at another state,
+  so the futures were other ones and the winner was another being. It was
+  a random code, the fittest plant of the 600 at the world's CO2,
+  calculated to be all 93 living from time 157 (87 at time 334). At time
+  157 the window said "as calculated".
+- **Color Mod from the command line:** a world on the saved parameters,
+  53 living at time 40. A being from the library, #12599, won: all 55
+  living from time 54, and still all 46 at time 104.
+
+A separate replay with the simulation alone (`tests/winner_check`) gave
+both command-line results to the organism and the hash. `tests/winner.sh`
+does the same in `make test`, and checks in both simulations that a world
+saved and opened again goes on as the one left running, a code pasted
+into each.
 
 ### Looks
 
@@ -1093,7 +1183,9 @@ src/syn/        the SYN edition's world view: navigation, the looks, batched dra
                 (record.c); the dice telescope (telescope.c), its
                 seed-cracking engine (crack.c) and its screen
                 (telescope_screen.c); the being library (library.c) and
-                its screen (library_screen.c); the shell over the world and its
+                its screen (library_screen.c); the field guide (guide.c,
+                guide_console.c) and kinds of being (kind.c, on the book of
+                words, lexicon.c); the shell over the world and its
                 screens: bar, commands, console, notifications, menus, card,
                 dialogs (shell.c); the parameters screen (params_screen.c)
 src/synos/      the SYN-OS interface: themes (as SYN-DEBT reads them), the skin
@@ -1183,7 +1275,7 @@ is `menu`, `options` or `world` (the default when `SHOT_UI` is set), or
 `SYN_BIOGENESIS_SHOT_FOCUS` follows the species with the most living, and
 `SYN_BIOGENESIS_SHOT_EXPORT` exports the tree as EXPORT does. It can also
 be `library`, with `SYN_BIOGENESIS_SHOT_LIBRARY` naming the folder (or
-`ladder`), or `telescope`, with `SYN_BIOGENESIS_SHOT_TELESCOPE` naming a
+`ladder`, or `guide` for the field guide), or `telescope`, with `SYN_BIOGENESIS_SHOT_TELESCOPE` naming a
 saved world to search first (`SYN_BIOGENESIS_SHOT_TELESCOPE_DEFAULTS` for
 the default parameters). Set `XDG_CONFIG_HOME` to keep such runs away
 from your own library and settings.

@@ -48,6 +48,10 @@ int colour_arena_main(int argc, char **argv);
 int colour_arena_worker(int argc, char **argv);
 /* the dice telescope (src/syn/telescope.h), Biogenesis 0.9's */
 int syn_telescope_main(int argc, char **argv);
+int syn_winner_main(int argc, char **argv);
+int syn_winner_worker(int argc, char **argv);
+int colour_winner_main(int argc, char **argv);
+int colour_winner_worker(int argc, char **argv);
 
 BioHost bio_host;
 
@@ -133,8 +137,11 @@ int main(int argc, char **argv)
                "                                                of its ladder on every core\n"
                "       syn-biogenesis --telescope ...    Biogenesis 0.9's random generator as algebra:\n"
                "                                         jumps, gene lengths, a saved world's seed\n"
+               "       syn-biogenesis [--colour] --winner WORLD ...   a being worked out for a saved\n"
+               "                                         world, whose bloodline will be all that lives\n"
                "syn-biogenesis --headless --help and --colour --headless --help list their options,\n"
-               "--arena --help the arena's and --telescope --help the telescope's.\n");
+               "--arena --help the arena's, --telescope --help the telescope's and --winner --help\n"
+               "the winner's.\n");
         return 0;
     }
     /* the arena's workers (started by the arena itself), and the arena
@@ -148,6 +155,15 @@ int main(int argc, char **argv)
         return syn_telescope_main(argc - 1, argv + 1);
     if (argc > 2 && !strcmp(argv[1], "--colour") && !strcmp(argv[2], "--arena"))
         return colour_arena_main(argc - 1, argv + 1);
+    /* a winner worked out for a world (the window starts it), and its
+     * workers */
+    if (argc > 2 && !strcmp(argv[1], "--winner-worker"))
+        return !strcmp(argv[2], "colour") ? colour_winner_worker(argc - 2, argv + 2)
+                                          : syn_winner_worker(argc - 2, argv + 2);
+    if (argc > 1 && !strcmp(argv[1], "--winner"))
+        return syn_winner_main(argc - 1, argv + 1);
+    if (argc > 2 && !strcmp(argv[1], "--colour") && !strcmp(argv[2], "--winner"))
+        return colour_winner_main(argc - 2, argv + 2);
     if (argc > 1 && !strcmp(argv[1], "--colour")) {
         v = V_COLOUR;
         /* swapped, not overwritten: on Windows SDL's main frees each of

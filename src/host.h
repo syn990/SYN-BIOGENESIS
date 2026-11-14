@@ -25,11 +25,15 @@
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
+    int open; /* the screen the simulation switched to opens on (BIO_OPEN_*; 0: as it would) */
 } BioHost;
 
 extern BioHost bio_host;
 
 #define BIO_SWITCH_BIOGENESIS 200
 #define BIO_SWITCH_COLOUR 201
+
+/* Color Mod's TELESCOPE: Biogenesis 0.9's telescope, switched to */
+#define BIO_OPEN_TELESCOPE 1
 
 #endif

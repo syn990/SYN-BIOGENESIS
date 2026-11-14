@@ -1031,7 +1031,8 @@ SDL_Rect syn_shell_card_rect(int w, int h)
     int cw = w - 280 < 800 ? w - 280 : 800;
     if (cw < 520)
         cw = w - 32 < 520 ? w - 32 : 520;
-    int ch = 196;
+    /* + two lines for what kind of being it is */
+    int ch = 196 + 40;
     return (SDL_Rect){16, h - SHELL_HINTS_H - 12 - ch, cw, ch};
 }
 
@@ -1093,6 +1094,43 @@ int syn_shell_card(int w, int h, const ShellCard *c)
         Rgb on = skin_tone(c->bar_tone[b]);
         for (int i = 0; i < cells; i++)
             skin_fill(ui_rect(bx + lw + (float)i * (sw + 2), by + 1, sw, 12), on, i < lit ? 1.0f : 0.16f);
+    }
+
+    /* what kind of being it is: the kind, then its sentence, two lines at most */
+    if (c->kind[0] || c->about[0]) {
+        float lh = skin_text_height(fo->small) + 4, ky = by + 22, kx = r.x + 12, right = r.x + r.w - 12;
+        float x = kx;
+        if (c->kind[0])
+            x += ink(fo->small_bold, c->kind, kx, ky, skin_tone(TONE_ACCENT), ALIGN_LEFT) + 10;
+        /* the words, wrapped from after the kind; the last one that fits ends in ... */
+        const char *p = c->about;
+        char line[400];
+        for (int ln = 0; ln < 2 && *p; ln++) {
+            size_t n = 0;
+            const char *q = p;
+            while (*q) {
+                const char *w = q + strspn(q, " "), *we = w + strcspn(w, " ");
+                char cand[400];
+                snprintf(cand, sizeof cand, "%.*s%s%.*s", (int)n, line, n ? " " : "", (int)(we - w), w);
+                if (n && text_w(fo->small, cand) > right - x)
+                    break;
+                n = strlen(cand) < sizeof line - 1 ? strlen(cand) : sizeof line - 1;
+                memcpy(line, cand, n);
+                q = we;
+            }
+            line[n] = '\0';
+            if (ln == 1 && *q) {
+                char fit[sizeof line + 8];
+                snprintf(fit, sizeof fit, "%s ...", line);
+                snprintf(line, sizeof line, "%.395s", fit);
+            }
+            ink(fo->small, line, x, ky + (float)ln * lh, skin_tone(TONE_MUTED), ALIGN_LEFT);
+            p = q + strspn(q, " ");
+            x = kx;
+        }
+        UIRect kr = {kx, ky - 2, right - kx, lh * 2};
+        if (over(kr) && c->about[0])
+            ui_tooltip(c->about);
     }
 
     /* what can be done to it, along the bottom: named, closer together if

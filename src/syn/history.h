@@ -150,6 +150,9 @@ typedef struct History {
 void syn_history_reset(World *w, bool loaded);
 /* After every simulation frame. */
 void syn_history_frame(World *w);
+/* fn called with the world after each time unit's own work (NULL: none):
+ * the winner's calculation compared (syn/winner.h) */
+void syn_history_on_unit(void (*fn)(const World *w));
 /* An organism leaving the world (World.on_remove), before it is freed. */
 void syn_history_removed(const World *w, const Organism *o);
 /* Something the user did, for the timeline. key merges repeats (0: none). */

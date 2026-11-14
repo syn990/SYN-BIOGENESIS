@@ -1,0 +1,1545 @@
+/* SYN-BIOGENESIS: Biogenesis 0.9 rewritten in C.
+ * Copyright (C) 2026 syn990
+ *
+ * Part of the SYN edition of SYN-BIOGENESIS, a C port of Biogenesis
+ * (https://biogenesis.sourceforge.net/).
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version. It is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+ * Public License (LICENSE) for more details.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
+
+#include "syn/winner.h"
+
+#include <errno.h>
+#include <inttypes.h>
+#include <math.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include "compat.h"
+#include "io/bgg.h"
+#include "io/bgw.h"
+#ifndef BIO_COLOUR
+#include "io/worldfile.h"
+#include "syn/crack.h"
+#endif
+#include "sim/jrandom.h"
+#include "sim/organism.h"
+#include "sim/params.h"
+#include "sim/world.h"
+#include "syn/arena_os.h"
+#include "syn/history.h"
+#include "syn/library.h"
+
+#ifdef BIO_COLOUR
+#define SIM_ARG "colour"
+#define SIM_NAME "Color Mod 2.01"
+#else
+#define SIM_ARG "0.9"
+#define SIM_NAME "Biogenesis 0.9"
+#endif
+
+/* what a run came to */
+enum { W_FAILED = -2, W_NOPLACE = 0, W_DEAD = 1, W_ALIVE = 2, W_OWNS = 3 };
+
+/* ================= shared ================= */
+
+static uint64_t fnv(uint64_t h, uint64_t v)
+{
+    for (int i = 0; i < 8; i++) {
+        h ^= (v >> (8 * i)) & 0xff;
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
+
+static uint64_t dbits(double d)
+{
+    uint64_t u;
+    memcpy(&u, &d, sizeof u);
+    return u;
+}
+
+uint64_t syn_winner_hash(const World *w)
+{
+    uint64_t h = 0xcbf29ce484222325ULL;
+    h = fnv(h, (uint64_t)(int64_t)w->population);
+    h = fnv(h, dbits(w->o2));
+    h = fnv(h, dbits(w->co2));
+#ifdef BIO_COLOUR
+    h = fnv(h, dbits(w->ch4));
+#endif
+    h = fnv(h, (uint64_t)(int64_t)w->next_id);
+    h = fnv(h, (uint64_t)w->stats.time);
+    h = fnv(h, (uint64_t)(int64_t)w->nframes);
+    /* Color Mod frees the organisms that ran out of energy when the next
+     * frame starts: they are in the list between frames, not in a save */
+    for (int i = 0; i < w->norgs; i++) {
+        const Organism *o = w->orgs[i];
+        if (o->removed)
+            continue;
+        h = fnv(h, (uint64_t)(int64_t)o->id);
+        h = fnv(h, o->alive ? 1 : 0);
+        h = fnv(h, dbits(o->energy));
+        h = fnv(h, dbits(o->dcenter_x));
+        h = fnv(h, dbits(o->dcenter_y));
+    }
+    return fnv(h, g_rng.seed);
+}
+
+static bool load_world(World *w, const char *path, char *err, size_t n)
+{
+    world_init(w);
+#ifdef BIO_COLOUR
+    return bgw_load(w, path, err, n);
+#else
+    return bgw_sniff(path) ? bgw_load(w, path, err, n) : worldfile_load(w, path, err, n);
+#endif
+}
+
+/* as the window pastes a code (app_paste_code) */
+static Organism *paste_at(World *w, GeneticCode *gc, int x, int y)
+{
+    Organism *o = org_new_with_code(w, gc);
+#ifdef BIO_COLOUR
+    bool ok = org_paste_organism(o, x, y);
+#else
+    bool ok = org_paste(o, x, y);
+#endif
+    if (!ok) {
+        org_free(o);
+        return NULL;
+    }
+    world_add_organism(w, o, NULL);
+    return o;
+}
+
+#ifdef BIO_COLOUR
+/* the founder's number at the head of its clade ID */
+static long clade_root(const Organism *o)
+{
+    return o->gc && o->gc->clade_id ? strtol(o->gc->clade_id, NULL, 10) : -1;
+}
+#endif
+
+/* the pasted organism's bloodline among the living (0.9: the codes marked
+ * 1; Color Mod: the clades rooted at root) */
+static void tally(const World *w, long root, int *mine, int *alive)
+{
+    *mine = *alive = 0;
+    for (int i = 0; i < w->norgs; i++) {
+        const Organism *o = w->orgs[i];
+        if (o->removed || !o->alive)
+            continue;
+        (*alive)++;
+#ifdef BIO_COLOUR
+        *mine += clade_root(o) == root;
+#else
+        (void)root;
+        *mine += o->gc && o->gc->lineage == 1;
+#endif
+    }
+}
+
+/* A code as its .bgg: through one temporary file kept open (Windows has
+ * no open_memstream), read back to the end of what was just written. */
+static char *code_text(const GeneticCode *gc, size_t *n)
+{
+    static FILE *tmp;
+    if (!tmp && !(tmp = tmpfile()))
+        return NULL;
+    rewind(tmp);
+    bgg_write_file(tmp, gc);
+    fflush(tmp);
+    long end = ftell(tmp);
+    if (end <= 0)
+        return NULL;
+    char *q = malloc((size_t)end + 1);
+    rewind(tmp);
+    if (!q || fread(q, 1, (size_t)end, tmp) != (size_t)end) {
+        free(q);
+        return NULL;
+    }
+    q[end] = '\0';
+    *n = (size_t)end;
+    return q;
+}
+
+static void drop_code(GeneticCode *gc)
+{
+#ifdef BIO_COLOUR
+    (void)gc; /* the collector's */
+#else
+    gc_unref(gc);
+#endif
+}
+
+static bool read_params(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+    Params q;
+    bool ok = fread(&q, 1, sizeof q, f) == sizeof q && fgetc(f) == EOF;
+    fclose(f);
+    if (ok)
+        memcpy(&P, &q, sizeof P);
+    return ok;
+}
+
+static bool write_params(const char *path)
+{
+    FILE *f = fopen(path, "wb");
+    if (!f)
+        return false;
+    bool ok = fwrite(&P, 1, sizeof P, f) == sizeof P;
+    return fclose(f) == 0 && ok;
+}
+
+static bool make_dir(const char *path)
+{
+    char p[1100];
+    snprintf(p, sizeof p, "%s", path);
+    for (char *s = p + 1; *s; s++)
+        if (*s == '/') {
+            *s = '\0';
+            mkdir(p, 0755);
+            *s = '/';
+        }
+    return mkdir(p, 0755) == 0 || errno == EEXIST;
+}
+
+static void winner_dir(char *out, size_t n)
+{
+    snprintf(out, n, "%s/winner-%s", params_config_dir(), SIM_ARG);
+}
+
+static bool write_all(int fd, const char *p, size_t n)
+{
+    while (n) {
+        ssize_t k = write(fd, p, n);
+        if (k < 0) {
+            if (errno == EINTR)
+                continue;
+            return false;
+        }
+        p += k;
+        n -= (size_t)k;
+    }
+    return true;
+}
+
+static bool sayf(int fd, const char *fmt, ...)
+{
+    char s[1400];
+    va_list ap;
+    va_start(ap, fmt);
+    int k = vsnprintf(s, sizeof s, fmt, ap);
+    va_end(ap);
+    return k > 0 && (size_t)k < sizeof s && write_all(fd, s, (size_t)k);
+}
+
+/* numbers as the window writes them: 1,130 */
+static const char *num(long long v, char *buf, size_t n)
+{
+    char d[32];
+    int k = snprintf(d, sizeof d, "%lld", v < 0 ? -v : v), o = 0;
+    if (v < 0 && o + 1 < (int)n)
+        buf[o++] = '-';
+    for (int i = 0; i < k && o + 2 < (int)n; i++) {
+        buf[o++] = d[i];
+        if ((k - 1 - i) % 3 == 0 && i < k - 1)
+            buf[o++] = ',';
+    }
+    buf[o] = '\0';
+    return buf;
+}
+
+/* ================= the worker ================= */
+
+static bool read_line(int fd, char *s, size_t n)
+{
+    size_t k = 0;
+    for (;;) {
+        char c;
+        ssize_t r = read(fd, &c, 1);
+        if (r < 0 && errno == EINTR)
+            continue;
+        if (r <= 0)
+            return false;
+        if (c == '\n')
+            break;
+        if (k + 1 < n && c != '\r')
+            s[k++] = c;
+    }
+    s[k] = '\0';
+    return true;
+}
+
+/* One candidate at one place: the world as saved, the generator at its
+ * state, the code pasted, and the world run until time unit until or the
+ * bloodline dies out. Once it is all that lives, the run goes on to time
+ * unit hold: the last of a dying world is no winner, so it owns the world
+ * only if it is still alive then. */
+static void run_job(int fd, const char *world_path, uint64_t state, int id, int x, int y,
+                    int64_t until, int64_t hold, const char *code_path)
+{
+    char err[256];
+    World w;
+    if (!load_world(&w, world_path, err, sizeof err)) {
+        fprintf(stderr, "winner worker: %s: %s\n", world_path, err);
+        world_free(&w);
+        sayf(fd, "R %d %d 0 0 0 0 0 0 0\n", id, W_FAILED);
+        return;
+    }
+    g_rng.seed = state;
+    GeneticCode *gc = bgg_read(code_path, err, sizeof err);
+    if (!gc) {
+        fprintf(stderr, "winner worker: %s: %s\n", code_path, err);
+        world_free(&w);
+        sayf(fd, "R %d %d 0 0 0 0 0 0 0\n", id, W_FAILED);
+        return;
+    }
+#ifndef BIO_COLOUR
+    for (int i = 0; i < w.norgs; i++) {
+        Organism *o = w.orgs[i];
+        if (o->gc)
+            o->gc->lineage = 0;
+        if (o->infected_gc)
+            o->infected_gc->lineage = 0;
+    }
+    gc->lineage = 1;
+#endif
+    Organism *o = paste_at(&w, gc, x, y);
+    drop_code(gc);
+    int status = W_NOPLACE, mine = 0, alive = 0, own_n = 0;
+    int64_t own_t = -1;
+    uint64_t own_h = 0;
+    long frames = 0;
+    if (o) {
+#ifdef BIO_COLOUR
+        long root = clade_root(o);
+#else
+        long root = 1;
+#endif
+        status = W_ALIVE;
+        int64_t seen = w.stats.time;
+        tally(&w, root, &mine, &alive);
+        while (w.stats.time < (own_t >= 0 ? hold : until)) {
+            world_time(&w);
+            frames++;
+            if (w.stats.time == seen)
+                continue;
+            seen = w.stats.time;
+            tally(&w, root, &mine, &alive);
+            if (mine == 0) {
+                status = W_DEAD;
+                break;
+            }
+            if (own_t < 0 && mine == alive) {
+                own_t = w.stats.time;
+                own_n = alive;
+                own_h = syn_winner_hash(&w);
+            }
+        }
+        if (status == W_ALIVE && own_t >= 0)
+            status = W_OWNS;
+    }
+    /* owned: when it began, the living then and the world hashed then;
+     * otherwise as the run ended. Both with the run's end. */
+    int64_t end_t = w.stats.time;
+    uint64_t h = status == W_OWNS ? own_h : syn_winner_hash(&w);
+    world_free(&w);
+    if (status == W_OWNS)
+        sayf(fd, "R %d %d %lld %d %d %016" PRIx64 " %ld %lld %d\n", id, status, (long long)own_t, own_n, own_n, h,
+             frames, (long long)end_t, mine);
+    else
+        sayf(fd, "R %d %d %lld %d %d %016" PRIx64 " %ld %lld %d\n", id, status, (long long)end_t, mine, alive, h,
+             frames, (long long)end_t, mine);
+}
+
+int syn_winner_worker(int argc, char **argv)
+{
+    /* SIM WORLD PARAMS STATE */
+    if (argc < 4)
+        return 2;
+    int fd = arena_os_worker_begin(true);
+    if (fd < 0)
+        return 0;
+    if (!read_params(argv[2])) {
+        fprintf(stderr, "winner worker: %s: not this program's parameters\n", argv[2]);
+        return 3;
+    }
+    uint64_t state = strtoull(argv[3], NULL, 16) & ((1ULL << 48) - 1);
+    char line[1400], path[1100];
+    while (read_line(0, line, sizeof line)) {
+        int id, x, y;
+        long long until, hold;
+        if (sscanf(line, "J %d %d %d %lld %lld %1099[^\n]", &id, &x, &y, &until, &hold, path) != 6)
+            break;
+        run_job(fd, argv[1], state, id, x, y, until, hold, path);
+    }
+    return 0;
+}
+
+/* ================= the search ================= */
+
+#define MAX_WORKERS 32
+#define MAX_SPOTS 8
+
+typedef struct {
+    char path[1100];
+    char label[200];
+    char *text; /* its .bgg, to tell codes apart */
+    size_t ntext;
+    int spot; /* bred: its parent's best place; -1: every place */
+} Cand;
+
+typedef struct {
+    int cand, spot;
+    int64_t until;
+    int status; /* W_*, or -1 not run */
+    int64_t t; /* owned: when it began; otherwise the run's end */
+    int mine, alive;
+    uint64_t hash; /* the world at t */
+    int64_t end_t; /* the run's end, and its bloodline then */
+    int end_n;
+} Eval;
+
+typedef struct {
+    ArenaProc proc;
+    bool up;
+    int job; /* the eval it runs, -1 none */
+    char part[512];
+    size_t npart;
+} Worker;
+
+static struct {
+    Cand *c;
+    int nc, capc;
+    Eval *e;
+    int ne, cape;
+    int spot[MAX_SPOTS][2];
+    char spot_label[MAX_SPOTS][48];
+    int nspot;
+    char dir[1100], world[1100], params[1100];
+    uint64_t state;
+    int64_t t0;
+    int units;
+    double started, seconds;
+    bool progress, out_of_time;
+    Worker wk[MAX_WORKERS];
+    int nwk;
+    int best; /* the best eval so far, -1 */
+    long runs;
+} D;
+
+static double elapsed(void)
+{
+    return arena_os_now() - D.started;
+}
+
+static bool add_cand(const GeneticCode *gc, const char *label, int spot)
+{
+    size_t n = 0;
+    char *t = code_text(gc, &n);
+    if (!t)
+        return false;
+    for (int i = 0; i < D.nc; i++)
+        if (D.c[i].ntext == n && !memcmp(D.c[i].text, t, n)) {
+            free(t);
+            return false;
+        }
+    if (D.nc == D.capc) {
+        D.capc = D.capc ? D.capc * 2 : 64;
+        D.c = realloc(D.c, (size_t)D.capc * sizeof *D.c);
+        if (!D.c)
+            abort();
+    }
+    Cand *c = &D.c[D.nc];
+    snprintf(c->path, sizeof c->path, "%.1000s/candidate-%04d.bgg", D.dir, D.nc + 1);
+    FILE *f = fopen(c->path, "wb");
+    if (!f || fwrite(t, 1, n, f) != n) {
+        if (f)
+            fclose(f);
+        free(t);
+        return false;
+    }
+    fclose(f);
+    snprintf(c->label, sizeof c->label, "%s", label);
+    c->text = t;
+    c->ntext = n;
+    c->spot = spot;
+    D.nc++;
+    return true;
+}
+
+/* ---- what the world holds ---- */
+
+typedef struct {
+    GeneticCode *gc;
+    char *text;
+    size_t ntext;
+    int n;
+} Kind;
+
+static int cmp_kind(const void *a, const void *b)
+{
+    const Kind *x = a, *y = b;
+    return y->n - x->n;
+}
+
+/* the living codes, alike ones together, the commonest first */
+static int census(const World *w, Kind **out, int *alive)
+{
+    Kind *k = NULL;
+    int nk = 0, cap = 0;
+    *alive = 0;
+    for (int i = 0; i < w->norgs; i++) {
+        const Organism *o = w->orgs[i];
+        if (o->removed || !o->alive || !o->gc)
+            continue;
+        (*alive)++;
+        int j;
+        for (j = 0; j < nk && k[j].gc != o->gc; j++)
+            ;
+        if (j < nk) {
+            k[j].n++;
+            continue;
+        }
+        if (nk == cap) {
+            cap = cap ? cap * 2 : 256;
+            k = realloc(k, (size_t)cap * sizeof *k);
+            if (!k)
+                abort();
+        }
+        k[nk++] = (Kind){o->gc, NULL, 0, 1};
+    }
+    /* codes written alike are one kind */
+    int m = 0;
+    for (int i = 0; i < nk; i++) {
+        k[i].text = code_text(k[i].gc, &k[i].ntext);
+        if (!k[i].text)
+            continue;
+        int j;
+        for (j = 0; j < m && !(k[j].ntext == k[i].ntext && !memcmp(k[j].text, k[i].text, k[i].ntext)); j++)
+            ;
+        if (j < m) {
+            k[j].n += k[i].n;
+            free(k[i].text);
+        } else {
+            k[m++] = k[i];
+        }
+    }
+    qsort(k, (size_t)m, sizeof *k, cmp_kind);
+    *out = k;
+    return m;
+}
+
+/* ---- places ---- */
+
+static void add_spot(int x, int y, const char *label)
+{
+    if (D.nspot >= MAX_SPOTS)
+        return;
+    D.spot[D.nspot][0] = x;
+    D.spot[D.nspot][1] = y;
+    snprintf(D.spot_label[D.nspot], sizeof D.spot_label[0], "%s", label);
+    D.nspot++;
+}
+
+/* The most open places: on a grid over the world, how far each point is
+ * from the edge of every organism's box (and the world's edge), the
+ * clearest first, each at least a quarter of the world from those
+ * already taken. */
+static void open_spots(const World *w, int want)
+{
+    enum { G = 48 };
+    static double clear[G * G];
+    for (int gy = 0; gy < G; gy++)
+        for (int gx = 0; gx < G; gx++) {
+            double px = (gx + 0.5) * w->width / G, py = (gy + 0.5) * w->height / G;
+            double c = fmin(fmin(px, w->width - px), fmin(py, w->height - py));
+            for (int i = 0; i < w->norgs && c > 0; i++) {
+                const Organism *o = w->orgs[i];
+                if (o->removed)
+                    continue;
+                double cx = o->r.x + o->r.width / 2.0, cy = o->r.y + o->r.height / 2.0;
+                double d = hypot(px - cx, py - cy) - fmax(o->r.width, o->r.height) / 2.0;
+                if (d < c)
+                    c = d;
+            }
+            clear[gy * G + gx] = c;
+        }
+    double sep = fmin(w->width, w->height) / 4.0;
+    for (int got = 0; got < want && D.nspot < MAX_SPOTS; got++) {
+        int bi = -1;
+        for (int i = 0; i < G * G; i++) {
+            double px = (i % G + 0.5) * w->width / G, py = (i / G + 0.5) * w->height / G;
+            bool near = false;
+            for (int s = 0; s < D.nspot && !near; s++)
+                near = hypot(px - D.spot[s][0], py - D.spot[s][1]) < sep;
+            if (!near && (bi < 0 || clear[i] > clear[bi]))
+                bi = i;
+        }
+        if (bi < 0 || clear[bi] <= 0)
+            break;
+        char label[48];
+        snprintf(label, sizeof label, "open place %d", got + 1);
+        add_spot((int)((bi % G + 0.5) * w->width / G), (int)((bi / G + 0.5) * w->height / G), label);
+    }
+}
+
+/* ---- candidates ---- */
+
+/* The simulation's own mutation, drawn until the code is a new one. */
+static GeneticCode *mutant(GeneticCode *parent)
+{
+    size_t pn = 0;
+    char *pt = code_text(parent, &pn);
+    for (int tries = 0; pt && tries < 40; tries++) {
+        GeneticCode *m = gc_new_mutated(parent);
+        size_t n = 0;
+        char *t = code_text(m, &n);
+        bool same = !t || (n == pn && !memcmp(t, pt, n));
+        free(t);
+        if (!same) {
+            free(pt);
+            return m;
+        }
+        drop_code(m);
+    }
+    free(pt);
+    return NULL;
+}
+
+static void library_cands(int cap)
+{
+    static char folders[256][LIB_PATH];
+    int nf = syn_library_folders(folders, 256), got = 0;
+    for (int f = 0; f < nf && got < cap; f++) {
+        if (!strcmp(folders[f], LIB_BIN) || !strncmp(folders[f], LIB_BIN "/", strlen(LIB_BIN) + 1))
+            continue;
+        static LibEntry e[256];
+        int ne = syn_library_list(folders[f], e, 256);
+        for (int i = 0; i < ne && got < cap; i++) {
+            char err[200], label[200];
+            GeneticCode *gc = syn_library_read(folders[f], e[i].name, err, sizeof err);
+            if (!gc)
+                continue;
+            snprintf(label, sizeof label, "from the library: %.80s%s%.60s", folders[f], folders[f][0] ? "/" : "",
+                     e[i].name);
+            got += add_cand(gc, label, -1);
+            drop_code(gc);
+        }
+    }
+}
+
+#ifndef BIO_COLOUR
+typedef struct {
+    GeneticCode *gc;
+    double fit;
+} Fit;
+
+static int cmp_fit(const void *a, const void *b)
+{
+    const Fit *x = a, *y = b;
+    return (x->fit < y->fit) - (x->fit > y->fit);
+}
+#endif
+
+/* random codes; 0.9: the fittest plants of many at the world's CO2 */
+static void random_cands(const World *w, int keep)
+{
+#ifdef BIO_COLOUR
+    (void)w;
+    for (int i = 0; i < keep; i++) {
+        GeneticCode *gc = gc_new_random();
+        add_cand(gc, "random", -1);
+    }
+#else
+    enum { DRAWN = 600 };
+    static Fit f[DRAWN];
+    for (int i = 0; i < DRAWN; i++) {
+        f[i].gc = gc_new_random();
+        f[i].fit = crack_fitness(f[i].gc, w->co2);
+    }
+    qsort(f, DRAWN, sizeof *f, cmp_fit);
+    int got = 0;
+    for (int i = 0; i < DRAWN; i++) {
+        if (got < keep && f[i].fit > 0) {
+            char label[200];
+            snprintf(label, sizeof label, "random, plant fitness %.3g at CO2 %.0f (of %d drawn)", f[i].fit, w->co2,
+                     DRAWN);
+            got += add_cand(f[i].gc, label, -1);
+        }
+        gc_unref(f[i].gc);
+    }
+#endif
+}
+
+/* ---- the workers ---- */
+
+static bool start_workers(int n)
+{
+    char hex[32];
+    snprintf(hex, sizeof hex, "%012" PRIx64, D.state);
+    const char *args[] = {"--winner-worker", SIM_ARG, D.world, D.params, hex};
+    for (int i = 0; i < n && i < MAX_WORKERS; i++) {
+        char err[300];
+        Worker *k = &D.wk[D.nwk];
+        memset(k, 0, sizeof *k);
+        if (!arena_os_spawn(&k->proc, args, 5, err, sizeof err)) {
+            fprintf(stderr, "winner: a worker didn't start: %s\n", err);
+            break;
+        }
+        k->up = true;
+        k->job = -1;
+        D.nwk++;
+    }
+    return D.nwk > 0;
+}
+
+static void stop_workers(void)
+{
+    for (int i = 0; i < D.nwk; i++)
+        if (D.wk[i].up) {
+            arena_os_end(&D.wk[i].proc);
+            D.wk[i].up = false;
+        }
+}
+
+static double share(const Eval *e)
+{
+    return e->alive > 0 ? (double)e->mine / e->alive : 0;
+}
+
+static int rank_class(const Eval *e)
+{
+    return e->status == W_OWNS ? 3 : e->status == W_ALIVE ? 2 : e->status == W_DEAD ? 1 : 0;
+}
+
+/* all that lives soonest (and the most of it at the end); then alive after
+ * the longest run, with the most of the living; then dead latest */
+static bool better(const Eval *a, const Eval *b)
+{
+    int ca = rank_class(a), cb = rank_class(b);
+    if (ca != cb)
+        return ca > cb;
+    if (ca == 3)
+        return a->t != b->t ? a->t < b->t : a->end_n > b->end_n;
+    if (ca == 2) {
+        if (a->until != b->until)
+            return a->until > b->until;
+        if (share(a) != share(b))
+            return share(a) > share(b);
+        return a->mine > b->mine;
+    }
+    return ca == 1 && a->t > b->t;
+}
+
+static void describe(const Eval *e, char *out, size_t n)
+{
+    char a[32], b[32], t[32];
+    const Cand *c = &D.c[e->cand];
+    switch (e->status) {
+    case W_OWNS: {
+        char et[32];
+        snprintf(out, n, "#%d (%s) at %s (%d, %d): all that lives from time %s (%s organisms), %s at time %s",
+                 e->cand + 1, c->label, D.spot_label[e->spot], D.spot[e->spot][0], D.spot[e->spot][1],
+                 num(e->t, t, sizeof t), num(e->alive, a, sizeof a), num(e->end_n, b, sizeof b),
+                 num(e->end_t, et, sizeof et));
+        break;
+    }
+    case W_ALIVE:
+        snprintf(out, n, "#%d (%s) at %s (%d, %d): %s of the %s living at time %s", e->cand + 1, c->label,
+                 D.spot_label[e->spot], D.spot[e->spot][0], D.spot[e->spot][1], num(e->mine, a, sizeof a),
+                 num(e->alive, b, sizeof b), num(e->t, t, sizeof t));
+        break;
+    case W_DEAD:
+        snprintf(out, n, "#%d (%s) at %s: died out by time %s", e->cand + 1, c->label, D.spot_label[e->spot],
+                 num(e->t, t, sizeof t));
+        break;
+    default:
+        snprintf(out, n, "#%d (%s) at %s: no room there", e->cand + 1, c->label, D.spot_label[e->spot]);
+    }
+}
+
+static int add_eval(int cand, int spot, int64_t until)
+{
+    if (D.ne == D.cape) {
+        D.cape = D.cape ? D.cape * 2 : 256;
+        D.e = realloc(D.e, (size_t)D.cape * sizeof *D.e);
+        if (!D.e)
+            abort();
+    }
+    D.e[D.ne] = (Eval){cand, spot, until, -1, 0, 0, 0, 0, 0, 0};
+    return D.ne++;
+}
+
+static void got_line(Worker *k, const char *s)
+{
+    int id, status, mine, alive;
+    long long t;
+    unsigned long long h;
+    long frames;
+    long long end_t;
+    int end_n;
+    if (sscanf(s, "R %d %d %lld %d %d %llx %ld %lld %d", &id, &status, &t, &mine, &alive, &h, &frames, &end_t,
+               &end_n) != 9 ||
+        id < 0 || id >= D.ne)
+        return;
+    Eval *e = &D.e[id];
+    e->status = status;
+    e->t = t;
+    e->mine = mine;
+    e->alive = alive;
+    e->hash = h;
+    e->end_t = end_t;
+    e->end_n = end_n;
+    D.runs++;
+    if (status >= W_DEAD && (D.best < 0 || better(e, &D.e[D.best])))
+        D.best = id;
+    k->job = -1;
+}
+
+/* the evals idx run on the workers; false if time ran out first */
+static bool run_batch(const int *idx, int n, int rung, int nrungs, int gen)
+{
+    int next = 0, done = 0;
+    double last = 0;
+    while (done < n) {
+        if (elapsed() > D.seconds) {
+            D.out_of_time = true;
+            stop_workers();
+            return false;
+        }
+        int live = 0;
+        for (int i = 0; i < D.nwk; i++) {
+            Worker *k = &D.wk[i];
+            if (!k->up)
+                continue;
+            live++;
+            if (k->job < 0 && next < n) {
+                const Eval *e = &D.e[idx[next]];
+                char job[1300];
+                int len = snprintf(job, sizeof job, "J %d %d %d %lld %lld %s\n", idx[next], D.spot[e->spot][0],
+                                   D.spot[e->spot][1], (long long)e->until, (long long)(D.t0 + D.units),
+                                   D.c[e->cand].path);
+                if (len > 0 && (size_t)len < sizeof job && write_all(k->proc.to, job, (size_t)len)) {
+                    k->job = idx[next];
+                    next++;
+                } else {
+                    arena_os_end(&k->proc);
+                    k->up = false;
+                }
+            }
+        }
+        if (!live) {
+            printf("winner: every worker has stopped\n");
+            return false;
+        }
+        int fds[MAX_WORKERS], nf = 0;
+        for (int i = 0; i < D.nwk; i++)
+            if (D.wk[i].up)
+                fds[nf++] = D.wk[i].proc.from;
+        arena_os_wait(fds, nf, 250);
+        for (int i = 0; i < D.nwk; i++) {
+            Worker *k = &D.wk[i];
+            if (!k->up)
+                continue;
+            char buf[2048];
+            long m;
+            while ((m = arena_os_read(&k->proc, buf, sizeof buf)) > 0)
+                for (long j = 0; j < m; j++) {
+                    if (buf[j] == '\n' || k->npart + 1 >= sizeof k->part) {
+                        k->part[k->npart] = '\0';
+                        int had = k->job;
+                        got_line(k, k->part);
+                        if (had >= 0 && k->job < 0)
+                            done++;
+                        k->npart = 0;
+                    } else if (buf[j] != '\r') {
+                        k->part[k->npart++] = buf[j];
+                    }
+                }
+            if (m < 0) {
+                /* it has gone: its run with it */
+                if (k->job >= 0) {
+                    D.e[k->job].status = W_FAILED;
+                    k->job = -1;
+                    done++;
+                }
+                arena_os_end(&k->proc);
+                k->up = false;
+            }
+        }
+        if (D.progress && elapsed() - last >= 0.5) {
+            last = elapsed();
+            printf("@progress %d %d %d %d %d %.0f %.4f %d\n", gen, rung + 1, nrungs, done, n, elapsed(),
+                   D.best >= 0 ? share(&D.e[D.best]) : 0.0, D.best >= 0 && D.e[D.best].status == W_OWNS);
+        }
+    }
+    return true;
+}
+
+static int cmp_eval_idx(const void *a, const void *b)
+{
+    int x = *(const int *)a, y = *(const int *)b;
+    if (better(&D.e[x], &D.e[y]))
+        return -1;
+    if (better(&D.e[y], &D.e[x]))
+        return 1;
+    return (x > y) - (x < y);
+}
+
+/* the horizons: a few time units, then four times as many, ... up to all */
+static int horizons(int *h)
+{
+    static const int k[] = {4, 16, 64};
+    int n = 0;
+    for (int i = 0; i < 3; i++)
+        if (k[i] < D.units)
+            h[n++] = k[i];
+    h[n++] = D.units;
+    return n;
+}
+
+/* (cand, spot) pairs through the horizons, the best third going on each
+ * time; true when one is all that lives */
+static bool run_rungs(int *cand, int *spot, int n, int gen)
+{
+    int h[4], nh = horizons(h);
+    int *idx = malloc((size_t)(n > 0 ? n : 1) * sizeof *idx);
+    if (!idx)
+        abort();
+    bool owned = false;
+    for (int r = 0; r < nh && n > 0; r++) {
+        for (int i = 0; i < n; i++)
+            idx[i] = add_eval(cand[i], spot[i], D.t0 + h[r]);
+        bool all = run_batch(idx, n, r, nh, gen);
+        qsort(idx, (size_t)n, sizeof *idx, cmp_eval_idx);
+        int dead = 0, live = 0, own = 0;
+        for (int i = 0; i < n; i++) {
+            int s = D.e[idx[i]].status;
+            dead += s == W_DEAD || s == W_NOPLACE;
+            live += s == W_ALIVE;
+            own += s == W_OWNS;
+        }
+        char what[600] = "none lived";
+        if (n > 0 && D.e[idx[0]].status >= W_ALIVE)
+            describe(&D.e[idx[0]], what, sizeof what);
+        printf("%s%s, %d time unit%s, %d run%s: %d died out or found no room%s; best %s\n",
+               gen ? "bred, " : "", r == 0 ? "first runs" : r == nh - 1 ? "last runs" : "longer runs", h[r],
+               h[r] == 1 ? "" : "s", n, n == 1 ? "" : "s", dead, all ? "" : " (time ran out)", what);
+        fflush(stdout);
+        if (!all)
+            break;
+        if (own) {
+            owned = true;
+            break;
+        }
+        /* the best third, at least three, of those still alive */
+        int keep = (live + 2) / 3;
+        if (keep < 3)
+            keep = live < 3 ? live : 3;
+        for (int i = 0; i < keep; i++) {
+            cand[i] = D.e[idx[i]].cand;
+            spot[i] = D.e[idx[i]].spot;
+        }
+        n = keep;
+    }
+    free(idx);
+    return owned;
+}
+
+static void usage(void)
+{
+    printf("usage: syn-biogenesis%s --winner WORLD [options]\n"
+           "  a being worked out for WORLD (" SIM_NAME ") as it is, whose bloodline will be all\n"
+           "  that lives in it: candidates pasted as the window pastes a code and the world run\n"
+           "  on from there on every core, exactly as it will go\n"
+           "  --generator STATE  the random generator's state the world goes on from, 48 bits in\n"
+           "                     hexadecimal (default: that of seed 0)\n"
+           "  --params FILE      the parameters as the window has them (default: the saved ones)\n"
+           "  --defaults         the default parameters, not the saved ones\n"
+           "  --at X Y           the place asked for (default: open places only)\n"
+           "  --spots K          open places tried besides it (default 2)\n"
+           "  --units U          time units a run goes on for at most (default 256)\n"
+           "  --seconds S        how long the search may take (default 180)\n"
+           "  --workers W        runs at once (default: one a core)\n"
+           "  --out DIR          the candidates, winner.bgg and winners.txt there (default:\n"
+           "                     winner-%s in the configuration folder)\n"
+           "  --progress         lines for the window as it goes\n",
+#ifdef BIO_COLOUR
+           " --colour",
+#else
+           "",
+#endif
+           SIM_ARG);
+}
+
+int syn_winner_main(int argc, char **argv)
+{
+    const char *world = NULL, *params = NULL, *out = NULL;
+    bool defaults = false, have_at = false;
+    int at_x = 0, at_y = 0, spots = 2, workers = 0;
+    D.units = 256;
+    D.seconds = 180;
+    D.best = -1;
+    JRandom start;
+    jr_set_seed(&start, 0);
+    D.state = start.seed;
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
+        if (!strcmp(a, "--generator") && v) {
+            D.state = strtoull(v, NULL, 16) & ((1ULL << 48) - 1);
+            i++;
+        } else if (!strcmp(a, "--params") && v) {
+            params = v;
+            i++;
+        } else if (!strcmp(a, "--defaults")) {
+            defaults = true;
+        } else if (!strcmp(a, "--at") && v && i + 2 < argc) {
+            at_x = atoi(v);
+            at_y = atoi(argv[i + 2]);
+            have_at = true;
+            i += 2;
+        } else if (!strcmp(a, "--spots") && v) {
+            spots = atoi(v);
+            i++;
+        } else if (!strcmp(a, "--units") && v) {
+            D.units = atoi(v);
+            i++;
+        } else if (!strcmp(a, "--seconds") && v) {
+            D.seconds = atof(v);
+            i++;
+        } else if (!strcmp(a, "--workers") && v) {
+            workers = atoi(v);
+            i++;
+        } else if (!strcmp(a, "--out") && v) {
+            out = v;
+            i++;
+        } else if (!strcmp(a, "--progress")) {
+            D.progress = true;
+        } else if (a[0] != '-' && !world) {
+            world = a;
+        } else {
+            usage();
+            return !strcmp(a, "--help") || !strcmp(a, "-h") ? 0 : 2;
+        }
+    }
+    if (!world) {
+        usage();
+        return 2;
+    }
+    if (D.progress) {
+        /* the window's: gone with it, every line as it is printed */
+        arena_os_child_begin();
+        setvbuf(stdout, NULL, _IOLBF, 0);
+    }
+    if (D.units < 1)
+        D.units = 1;
+    if (spots < 0)
+        spots = 0;
+    if (workers < 1)
+        workers = arena_os_cores();
+    if (workers > MAX_WORKERS)
+        workers = MAX_WORKERS;
+    D.started = arena_os_now();
+
+    params_set_defaults(&P);
+    if (params) {
+        if (!read_params(params)) {
+            printf("winner: %s: not this program's parameters\n", params);
+            return 1;
+        }
+    } else if (!defaults) {
+        params_load();
+    }
+    if (out)
+        snprintf(D.dir, sizeof D.dir, "%s", out);
+    else
+        winner_dir(D.dir, sizeof D.dir);
+    if (!make_dir(D.dir)) {
+        printf("winner: %s: %s\n", D.dir, strerror(errno));
+        return 1;
+    }
+    snprintf(D.world, sizeof D.world, "%s", world);
+    if (params) {
+        snprintf(D.params, sizeof D.params, "%s", params);
+    } else {
+        snprintf(D.params, sizeof D.params, "%.1000s/params.bin", D.dir);
+        if (!write_params(D.params)) {
+            printf("winner: %s: %s\n", D.params, strerror(errno));
+            return 1;
+        }
+    }
+
+    char err[256];
+    World w;
+    if (!load_world(&w, world, err, sizeof err)) {
+        printf("winner: %s: %s\n", world, err);
+        world_free(&w);
+        return 1;
+    }
+    g_rng.seed = D.state;
+    D.t0 = w.stats.time;
+    uint64_t h0 = syn_winner_hash(&w);
+
+    Kind *kinds = NULL;
+    int alive = 0, nkinds = census(&w, &kinds, &alive);
+    char a1[32], a2[32], a3[32];
+    printf(SIM_NAME ", the world at time %s: %s living, %s codes, CO2 %.0f; the generator at %012" PRIx64 "\n",
+           num(D.t0, a1, sizeof a1), num(alive, a2, sizeof a2), num(nkinds, a3, sizeof a3), w.co2, D.state);
+    if (D.progress)
+        printf("@begin %016" PRIx64 "\n", h0);
+
+    /* the places */
+    if (have_at)
+        add_spot(at_x, at_y, "the place asked for");
+    open_spots(&w, spots);
+    printf("places:");
+    for (int s = 0; s < D.nspot; s++)
+        printf("%s %s (%d, %d)", s ? ";" : "", D.spot_label[s], D.spot[s][0], D.spot[s][1]);
+    printf("\n");
+    if (!D.nspot) {
+        printf("@none the world has no open place\n");
+        world_free(&w);
+        return 0;
+    }
+
+    /* the candidates, from dice of the search's own (the world's are in
+     * the file and the workers) */
+    jr_set_seed(&g_rng, (int64_t)(D.state ^ 0x5DEECE66DULL));
+    static const char *const nth[] = {"", "2nd ", "3rd ", "4th ", "5th ", "6th ", "7th ", "8th "};
+    int n_inc = nkinds < 8 ? nkinds : 8;
+    for (int i = 0; i < n_inc; i++) {
+        char label[200];
+        snprintf(label, sizeof label, "the %scommonest code alive, %s of the %s living", nth[i],
+                 num(kinds[i].n, a1, sizeof a1), num(alive, a2, sizeof a2));
+        add_cand(kinds[i].gc, label, -1);
+    }
+    int from_world = D.nc;
+    for (int i = 0; i < 3 && i < nkinds; i++)
+        for (int m = 0; m < 4; m++) {
+            GeneticCode *gc = mutant(kinds[i].gc);
+            if (!gc)
+                break;
+            char label[200];
+            snprintf(label, sizeof label, "a mutation of the %scommonest code alive", nth[i]);
+            add_cand(gc, label, -1);
+            drop_code(gc);
+        }
+    int mutants = D.nc - from_world;
+    library_cands(24);
+    int library = D.nc - from_world - mutants;
+    random_cands(&w, 8);
+    int randoms = D.nc - from_world - mutants - library;
+    for (int i = 0; i < nkinds; i++)
+        free(kinds[i].text);
+    free(kinds);
+    printf("candidates: %d of the world's commonest codes, %d mutations of them, %d from the library, %d random: "
+           "%d, each tried at %d place%s\n",
+           from_world, mutants, library, randoms, D.nc, D.nspot, D.nspot == 1 ? "" : "s");
+    fflush(stdout);
+
+    if (!start_workers(workers)) {
+        printf("@none no worker started\n");
+        world_free(&w);
+        return 1;
+    }
+
+    /* every candidate at every place */
+    int n = D.nc * D.nspot;
+    int *cand = malloc((size_t)n * sizeof *cand), *spot = malloc((size_t)n * sizeof *spot);
+    if (!cand || !spot)
+        abort();
+    for (int c = 0, k = 0; c < D.nc; c++)
+        for (int s = 0; s < D.nspot; s++, k++) {
+            cand[k] = c;
+            spot[k] = s;
+        }
+    bool owned = run_rungs(cand, spot, n, 0);
+    free(cand);
+    free(spot);
+
+    /* bred from the best while time is left */
+    for (int gen = 1; !owned && !D.out_of_time && gen <= 50; gen++) {
+        int parent[4], np = 0;
+        int *order = malloc((size_t)D.ne * sizeof *order);
+        if (!order)
+            abort();
+        for (int i = 0; i < D.ne; i++)
+            order[i] = i;
+        qsort(order, (size_t)D.ne, sizeof *order, cmp_eval_idx);
+        for (int i = 0; i < D.ne && np < 4; i++) {
+            const Eval *e = &D.e[order[i]];
+            if (e->status != W_ALIVE)
+                break;
+            bool seen = false;
+            for (int j = 0; j < np; j++)
+                seen |= D.e[parent[j]].cand == e->cand;
+            if (!seen)
+                parent[np++] = order[i];
+        }
+        free(order);
+        if (!np)
+            break;
+        int base = D.nc;
+        int *bc = malloc((size_t)np * 5 * sizeof *bc), *bs = malloc((size_t)np * 5 * sizeof *bs), nb = 0;
+        if (!bc || !bs)
+            abort();
+        for (int p = 0; p < np; p++) {
+            const Eval *pe = &D.e[parent[p]];
+            char perr[200];
+            GeneticCode *pgc = bgg_read(D.c[pe->cand].path, perr, sizeof perr);
+            if (!pgc)
+                continue;
+            for (int m = 0; m < 5; m++) {
+                GeneticCode *gc = mutant(pgc);
+                if (!gc)
+                    break;
+                char label[200];
+                snprintf(label, sizeof label, "bred, generation %d: a mutation of #%d", gen, pe->cand + 1);
+                if (add_cand(gc, label, pe->spot)) {
+                    bc[nb] = D.nc - 1;
+                    bs[nb] = pe->spot;
+                    nb++;
+                }
+                drop_code(gc);
+            }
+            drop_code(pgc);
+        }
+        if (nb)
+            owned = run_rungs(bc, bs, nb, gen);
+        free(bc);
+        free(bs);
+        if (D.nc == base)
+            break;
+    }
+    stop_workers();
+
+    /* the ranking: each candidate's best run */
+    int *order = malloc((size_t)(D.ne > 0 ? D.ne : 1) * sizeof *order);
+    if (!order)
+        abort();
+    for (int i = 0; i < D.ne; i++)
+        order[i] = i;
+    qsort(order, (size_t)D.ne, sizeof *order, cmp_eval_idx);
+    char path[1200];
+    snprintf(path, sizeof path, "%s/winners.txt", D.dir);
+    FILE *wf = fopen(path, "w");
+    /* what the search worked on, to be run again */
+    if (wf)
+        fprintf(wf,
+                "# " SIM_NAME ": %s at time %lld, the generator at %012" PRIx64 ", the parameters in %s\n"
+                "# %ld runs in %.0f s%s\n",
+                D.world, (long long)D.t0, D.state, D.params, D.runs, elapsed(),
+                D.out_of_time ? ", when time ran out" : "");
+    printf("winners (%ld runs in %.0f s%s):\n", D.runs, elapsed(), D.out_of_time ? ", when time ran out" : "");
+    bool *shown = calloc((size_t)D.nc + 1, 1);
+    for (int i = 0, k = 0; i < D.ne && k < 10; i++) {
+        const Eval *e = &D.e[order[i]];
+        if (e->status < W_DEAD || shown[e->cand])
+            continue;
+        shown[e->cand] = true;
+        char what[600];
+        describe(e, what, sizeof what);
+        printf("  %d. %s\n", ++k, what);
+        if (wf)
+            fprintf(wf, "%d. %s\n   %s\n", k, what, D.c[e->cand].path);
+    }
+    free(shown);
+    free(order);
+    if (wf)
+        fclose(wf);
+
+    int rc = 0;
+    if (D.best < 0 || D.e[D.best].status < W_ALIVE) {
+        printf("@none no candidate's bloodline lived\n");
+    } else {
+        const Eval *e = &D.e[D.best];
+        char dst[1200];
+        snprintf(dst, sizeof dst, "%s/winner.bgg", D.dir);
+        FILE *f = fopen(dst, "wb");
+        const Cand *c = &D.c[e->cand];
+        if (!f || fwrite(c->text, 1, c->ntext, f) != c->ntext) {
+            printf("@none %s: %s\n", dst, strerror(errno));
+            rc = 1;
+        } else {
+            char what[600];
+            describe(e, what, sizeof what);
+            printf("the winner: %s\n", what);
+            printf("@winner %s %d %d %lld %d %d %016" PRIx64 " %lld %d %s\t%s\n",
+                   e->status == W_OWNS ? "owns" : "best", D.spot[e->spot][0], D.spot[e->spot][1], (long long)e->t,
+                   e->mine, e->alive, e->hash, (long long)e->end_t, e->end_n, dst, c->label);
+        }
+        if (f)
+            fclose(f);
+    }
+    for (int i = 0; i < D.nc; i++)
+        free(D.c[i].text);
+    world_free(&w);
+    return rc;
+}
+
+/* ================= in the window ================= */
+
+#define WN_LINES 64
+
+static struct {
+    bool running, done;
+    ArenaProc proc;
+    char part[2048];
+    size_t npart;
+    char status[200];
+    uint64_t start_hash;
+    WinnerResult res;
+    bool told; /* @winner or @none */
+    char lines[WN_LINES][300];
+    int nl, rd;
+    /* the calculation waited on */
+    bool pending, owns;
+    int64_t t0, t;
+    int mine, alive;
+    uint64_t hash;
+    char verdict[300];
+    bool has_verdict;
+} WN;
+
+static void wn_line(const char *s)
+{
+    if (WN.nl - WN.rd < WN_LINES) {
+        snprintf(WN.lines[WN.nl % WN_LINES], sizeof WN.lines[0], "%.299s", s);
+        WN.nl++;
+    }
+}
+
+bool syn_winner_start(const World *w, int x, int y, int seconds, char *err, size_t n)
+{
+    if (WN.running) {
+        snprintf(err, n, "one is being worked out already");
+        return false;
+    }
+    char dir[1100], world[1200], params[1200], e[256];
+    winner_dir(dir, sizeof dir);
+    if (!make_dir(dir)) {
+        snprintf(err, n, "%s: %s", dir, strerror(errno));
+        return false;
+    }
+    snprintf(world, sizeof world, "%s/world.bgw", dir);
+    snprintf(params, sizeof params, "%s/params.bin", dir);
+    if (!bgw_save(w, world, e, sizeof e)) {
+        snprintf(err, n, "%s", e);
+        return false;
+    }
+    if (!write_params(params)) {
+        snprintf(err, n, "%s: %s", params, strerror(errno));
+        return false;
+    }
+    char hex[32], xs[16], ys[16], ss[16];
+    snprintf(hex, sizeof hex, "%012" PRIx64, g_rng.seed);
+    snprintf(xs, sizeof xs, "%d", x);
+    snprintf(ys, sizeof ys, "%d", y);
+    snprintf(ss, sizeof ss, "%d", seconds);
+    const char *args[] = {
+#ifdef BIO_COLOUR
+        "--colour",
+#endif
+        "--winner", world,  "--params", params, "--generator", hex, "--at", xs, ys, "--seconds", ss,
+        "--out",    dir,    "--progress"};
+    if (!arena_os_spawn(&WN.proc, args, (int)(sizeof args / sizeof *args), e, sizeof e)) {
+        snprintf(err, n, "%s", e);
+        return false;
+    }
+    WN.running = true;
+    WN.done = WN.told = false;
+    WN.npart = 0;
+    memset(&WN.res, 0, sizeof WN.res);
+    WN.start_hash = syn_winner_hash(w);
+    snprintf(WN.status, sizeof WN.status, "Winner: looking at the world");
+    return true;
+}
+
+bool syn_winner_running(void)
+{
+    return WN.running;
+}
+
+uint64_t syn_winner_start_hash(void)
+{
+    return WN.start_hash;
+}
+
+void syn_winner_cancel(void)
+{
+    if (WN.running)
+        arena_os_end(&WN.proc);
+    WN.running = WN.done = false;
+}
+
+const char *syn_winner_status(void)
+{
+    return WN.running ? WN.status : NULL;
+}
+
+static void wn_parse(const char *s)
+{
+    if (!strncmp(s, "@begin ", 7)) {
+        unsigned long long h;
+        if (sscanf(s + 7, "%llx", &h) == 1 && h != WN.start_hash)
+            wn_line("The world saved for the search doesn't hash as the one open: what it finds may "
+                    "not come true");
+        return;
+    }
+    if (!strncmp(s, "@progress ", 10)) {
+        int gen, rung, nrungs, done, n, owns;
+        double secs, best;
+        if (sscanf(s + 10, "%d %d %d %d %d %lf %lf %d", &gen, &rung, &nrungs, &done, &n, &secs, &best, &owns) == 8) {
+            char g[32] = "";
+            if (gen)
+                snprintf(g, sizeof g, "bred %d, ", gen);
+            snprintf(WN.status, sizeof WN.status, "Winner: %sruns %d of %d, %d of %d; best %s%.0f%%; %.0f s", g, rung,
+                     nrungs, done, n, owns ? "all, " : "", best * 100, secs);
+        }
+        return;
+    }
+    if (!strncmp(s, "@winner ", 8)) {
+        WinnerResult *r = &WN.res;
+        char kind[8];
+        long long t, end_t;
+        unsigned long long h;
+        int used = 0;
+        if (sscanf(s + 8, "%7s %d %d %lld %d %d %llx %lld %d %n", kind, &r->x, &r->y, &t, &r->mine, &r->alive, &h,
+                   &end_t, &r->end_n, &used) == 9 &&
+            used > 0) {
+            r->end_t = end_t;
+            const char *rest = s + 8 + used, *tab = strchr(rest, '\t');
+            size_t pn = tab ? (size_t)(tab - rest) : strlen(rest);
+            if (pn >= sizeof r->bgg)
+                pn = sizeof r->bgg - 1;
+            memcpy(r->bgg, rest, pn);
+            r->bgg[pn] = '\0';
+            snprintf(r->label, sizeof r->label, "%s", tab ? tab + 1 : "");
+            r->found = true;
+            r->owns = !strcmp(kind, "owns");
+            r->t = t;
+            r->hash = h;
+        }
+        WN.told = true;
+        return;
+    }
+    if (!strncmp(s, "@none", 5)) {
+        WN.res.found = false;
+        snprintf(WN.res.why, sizeof WN.res.why, "%.199s", s[5] ? s + 6 : "nothing found");
+        WN.told = true;
+        return;
+    }
+    if (s[0] != '@')
+        wn_line(s);
+}
+
+bool syn_winner_poll(WinnerResult *r)
+{
+    if (!WN.running)
+        return false;
+    char buf[4096];
+    for (;;) {
+        long m = arena_os_read(&WN.proc, buf, sizeof buf);
+        if (m == 0)
+            return false;
+        if (m < 0)
+            break;
+        for (long i = 0; i < m; i++) {
+            if (buf[i] == '\n' || WN.npart + 1 >= sizeof WN.part) {
+                WN.part[WN.npart] = '\0';
+                wn_parse(WN.part);
+                WN.npart = 0;
+            } else if (buf[i] != '\r') {
+                WN.part[WN.npart++] = buf[i];
+            }
+        }
+    }
+    /* it has ended */
+    if (WN.npart) {
+        WN.part[WN.npart] = '\0';
+        wn_parse(WN.part);
+        WN.npart = 0;
+    }
+    arena_os_end(&WN.proc);
+    WN.running = false;
+    if (!WN.told) {
+        WN.res.found = false;
+        snprintf(WN.res.why, sizeof WN.res.why, "the search stopped before it could say");
+    }
+    *r = WN.res;
+    return true;
+}
+
+const char *syn_winner_line(void)
+{
+    if (WN.rd >= WN.nl)
+        return NULL;
+    return WN.lines[WN.rd++ % WN_LINES];
+}
+
+void syn_winner_expect(const World *w, const WinnerResult *r)
+{
+    syn_history_on_unit(syn_winner_unit);
+    WN.pending = true;
+    WN.owns = r->owns;
+    WN.t0 = w->stats.time;
+    WN.t = r->t;
+    WN.mine = r->mine;
+    WN.alive = r->alive;
+    WN.hash = r->hash;
+}
+
+void syn_winner_unit(const World *w)
+{
+    if (!WN.pending)
+        return;
+    /* another world since (a new one, or one opened) */
+    if (w->stats.time < WN.t0 || w->stats.time > WN.t) {
+        WN.pending = false;
+        return;
+    }
+    if (w->stats.time < WN.t)
+        return;
+    WN.pending = false;
+    char t[32], a[32], b[32];
+    num(WN.t, t, sizeof t);
+    if (syn_winner_hash(w) != WN.hash)
+        snprintf(WN.verdict, sizeof WN.verdict,
+                 "Time %s: the world is not as calculated. Something else was done to it after the winner was "
+                 "placed",
+                 t);
+    else if (WN.owns)
+        snprintf(WN.verdict, sizeof WN.verdict, "Time %s, as calculated: the winner's bloodline is all %s living", t,
+                 num(WN.alive, a, sizeof a));
+    else
+        snprintf(WN.verdict, sizeof WN.verdict,
+                 "Time %s, as calculated: the winner's bloodline is %s of the %s living", t,
+                 num(WN.mine, a, sizeof a), num(WN.alive, b, sizeof b));
+    WN.has_verdict = true;
+}
+
+const char *syn_winner_verdict(void)
+{
+    if (!WN.has_verdict)
+        return NULL;
+    WN.has_verdict = false;
+    return WN.verdict;
+}

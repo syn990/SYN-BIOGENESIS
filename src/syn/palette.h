@@ -75,6 +75,8 @@ float syn_flash_left(const Organism *o);
 int syn_genes(const GeneticCode *gc);
 /* The palette slot of gene i's colour. */
 int syn_gene_col(const GeneticCode *gc, int i);
+/* Gene i's length, as the code has it (full grown) */
+double syn_gene_len(const GeneticCode *gc, int i);
 int syn_generation(const Organism *o);
 double syn_reproduce_energy(const Organism *o);
 /* What gene lengths are multiplied by at the organism's growth: 0.9

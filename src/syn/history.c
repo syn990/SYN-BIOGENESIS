@@ -54,6 +54,7 @@ static struct {
     int map_cap;
     int64_t t_start, seen_t;
     bool started;
+    void (*on_unit)(const World *w); /* syn_history_on_unit */
 
     /* what the detectors last saw */
     int extinctions;
@@ -841,7 +842,14 @@ void syn_history_frame(World *w)
     if (w->stats.time != H.seen_t) {
         H.seen_t = w->stats.time;
         unit(w);
+        if (H.on_unit)
+            H.on_unit(w);
     }
+}
+
+void syn_history_on_unit(void (*fn)(const World *w))
+{
+    H.on_unit = fn;
 }
 
 void syn_history_removed(const World *w, const Organism *o)

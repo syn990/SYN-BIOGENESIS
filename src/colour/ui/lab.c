@@ -31,6 +31,7 @@
 
 #include "io/bgg.h"
 #include "sim/params.h"
+#include "syn/guide.h"
 #include "syn/library_screen.h"
 #include "syn/shell.h"
 #include "synos/synos.h"
@@ -325,10 +326,12 @@ void lab_draw(App *a)
     if (l->scroll < 0)
         l->scroll = 0;
     static int colours[64];
-    static const char *names[64];
+    static const char *names[64], *tips[64];
     for (int k = 0; k < k_n_gene_colours; k++) {
         colours[k] = (int)k_gene_colours[k].color;
         names[k] = k_gene_colours[k].name;
+        /* SYN-OS: the field guide's line for each (syn/guide.h) */
+        tips[k] = syn_guide_short(syn_col((uint32_t)k_gene_colours[k].color));
     }
     gfx_clip_push(rows);
     int act_insert = -1, act_delete = -1;
@@ -358,9 +361,14 @@ void lab_draw(App *a)
         for (int k = 0; k < k_n_gene_colours; k++)
             if (k_gene_colours[k].color == g->color)
                 sel = k;
-        if (ui_color_combo(ui_id("lab_col", (uint32_t)i), (SDL_Rect){cols[3], ry, 124, rh},
-                           colours, names, k_n_gene_colours, &sel))
+        SDL_Rect colr = {cols[3], ry, 124, rh};
+        if (ui_color_combo(ui_id("lab_col", (uint32_t)i), colr, colours, names, k_n_gene_colours, &sel))
             g->color = k_gene_colours[sel].color;
+        if (synos_active()) {
+            ui_popup_tips(ui_id("lab_col", (uint32_t)i), tips, k_n_gene_colours);
+            if (ui_hover(colr))
+                ui_tooltip(tips[sel]);
+        }
         double br = g->branch;
         if (ui_spinner(ui_id("lab_branch", (uint32_t)i), (SDL_Rect){cols[4], ry, 70, rh}, &br, -1,
                        999, 1, 0, false))

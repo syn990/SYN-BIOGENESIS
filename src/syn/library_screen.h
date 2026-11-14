@@ -35,6 +35,8 @@ void syn_library_frame(struct App *a, int w, int h);
 /* The screen BACK and Esc return to (a SynosScreen): the main menu unless
  * it was opened from somewhere else. */
 void syn_library_open_from(int screen);
+/* The field guide shown, the next time the screen is */
+void syn_library_show_guide(void);
 /* A code kept in a folder of the library under a name, saying where it
  * came from; the status line says where it went. */
 bool syn_library_keep(struct App *a, const GeneticCode *gc, const char *folder, const char *name,

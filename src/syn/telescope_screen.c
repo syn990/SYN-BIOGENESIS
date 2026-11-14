@@ -152,6 +152,7 @@ static struct {
         int win, lone, t, copies, changes;
         double chance;
         GeneticCode *gc;
+        bool entered; /* put on the arena's ladder */
     } r[FORGED];
     int nr;
     char last[LINE];
@@ -1033,6 +1034,7 @@ static void forge_line(const char *s)
             G.r[G.nr].copies = copies;
             G.r[G.nr].changes = changes;
             G.r[G.nr].chance = chance;
+            G.r[G.nr].entered = false;
             G.r[G.nr++].gc = NULL;
         }
     } else if (sscanf(s, "@file %lld %1199[^\n]", &seed, path) == 2) {
@@ -1057,6 +1059,24 @@ static void poll_forge(void)
         if (!G.done)
             say("The forge stopped before it could say");
     }
+}
+
+/* A forged winner on the arena's ladder at level 1, under the arena's
+ * settings as they are now (the forge weighs seeds in the arena's world) */
+static bool forge_enter(int i)
+{
+    char name[64], err[200], msg[400];
+    snprintf(name, sizeof name, "forged-%" PRId64, G.r[i].seed);
+    const ArenaEntry *e = syn_arena_enter(G.r[i].gc, name, err, sizeof err);
+    if (!e) {
+        snprintf(msg, sizeof msg, "Not on the ladder: %s", err);
+        say(msg);
+        return false;
+    }
+    G.r[i].entered = true;
+    snprintf(msg, sizeof msg, "%s is on the arena's ladder at level 1", e->name);
+    say(msg);
+    return true;
 }
 
 static void forge_view(App *a, float x, float y, float tw, float bottom)
@@ -1098,6 +1118,22 @@ static void forge_view(App *a, float x, float y, float tw, float bottom)
     }
     if (over(go) && !G.running)
         ui_tooltip("Weigh the next seeds and run the likeliest, in the arena's world");
+    /* every winner not yet there, to the ladder */
+    int waiting = 0;
+    for (int i = 0; i < G.nr; i++)
+        waiting += G.r[i].gc && G.r[i].lone >= 0 && !G.r[i].entered;
+    UIRect ball = {x + tw - 230, y, 230, 40};
+    if (button(ball, "ALL TO THE ARENA", false, waiting && !G.running)) {
+        int put = 0;
+        for (int i = 0; i < G.nr; i++)
+            if (G.r[i].gc && G.r[i].lone >= 0 && !G.r[i].entered)
+                put += forge_enter(i);
+        char msg[200];
+        snprintf(msg, sizeof msg, "%d forged winner%s on the arena's ladder at level 1", put, put == 1 ? "" : "s");
+        say(msg);
+    }
+    if (over(ball))
+        ui_tooltip("Put each winner on the arena's ladder at level 1, to fight its way up");
     double secs = G.running ? arena_os_now() - G.started : G.took;
     if (G.running && G.prog_n)
         snprintf(line, sizeof line, "seeds %" PRId64 " to %" PRId64 " weighed  ·  running %d of %d  ·  %.0f s", G.from,
@@ -1110,7 +1146,8 @@ static void forge_view(App *a, float x, float y, float tw, float bottom)
                  G.from, G.from + G.scan - 1, G.w, G.h, G.n, secs);
     else
         snprintf(line, sizeof line, "next: from seed %" PRId64, G.next_from);
-    skin_text(fo->body, line, go.x + go.w + 20, y + 10, G.running ? TONE_ACCENT : TONE_MUTED, ALIGN_LEFT);
+    skin_text(fo->body, skin_fit(fo->body, line, ball.x - go.x - go.w - 40, fit, sizeof fit), go.x + go.w + 20, y + 10,
+              G.running ? TONE_ACCENT : TONE_MUTED, ALIGN_LEFT);
     y += 40 + 16;
 
     float lh = skin_text_height(fo->small) + 3;
@@ -1132,7 +1169,8 @@ static void forge_view(App *a, float x, float y, float tw, float bottom)
         bool acts = G.r[i].gc && G.r[i].lone >= 0;
         UIRect bj = {row.x + row.w - 126, row.y + (row.h - 34) / 2, 118, 34};
         UIRect bk = {bj.x - 104, bj.y, 98, 34}, bw = {bk.x - 180, bj.y, 174, 34};
-        float txw = (acts ? bw.x - 12 : row.x + row.w - 8) - tx;
+        UIRect ba = {bw.x - 166, bj.y, 160, 34};
+        float txw = (acts ? ba.x - 12 : row.x + row.w - 8) - tx;
         snprintf(line, sizeof line, "SEED %" PRId64 "  ·  founder %d expected, %.0f%%", G.r[i].seed, G.r[i].win + 1,
                  100 * G.r[i].chance);
         skin_text(fo->body, skin_fit(fo->body, line, txw, fit, sizeof fit), tx, row.y + 10, TONE_TEXT, ALIGN_LEFT);
@@ -1175,6 +1213,10 @@ static void forge_view(App *a, float x, float y, float tw, float bottom)
             ui_tooltip("Keep it in the being library, in Forged");
         if (button(bw, "WHERE IT LIVES", false, true))
             syn_telescope_find(G.r[i].gc, name);
+        if (button(ba, G.r[i].entered ? "ON THE LADDER" : "TO THE ARENA", G.r[i].entered, !G.r[i].entered))
+            forge_enter(i);
+        if (over(ba) && !G.r[i].entered)
+            ui_tooltip("Put it on the arena's ladder at level 1, to fight its way up");
     }
     gfx_clip_pop();
     if (G.last[0])

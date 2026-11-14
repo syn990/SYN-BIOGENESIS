@@ -40,10 +40,13 @@
 #include "syn/library_screen.h"
 #include "syn/genesis_screen.h"
 #include "syn/history.h"
+#include "syn/guide_console.h"
+#include "syn/kind.h"
 #include "syn/sidecar.h"
 #include "syn/params_screen.h"
 #include "syn/shell.h"
 #include "syn/stats_screen.h"
+#include "syn/winner.h"
 #include "syn/syn.h"
 #include "synos/synos.h"
 
@@ -58,6 +61,8 @@
 
 /* Leaving to run Biogenesis 0.9 (BIO_SWITCH_BIOGENESIS, see host.h); 0: quitting */
 static int g_switch;
+/* the switch asked for by TELESCOPE: 0.9 opens on its telescope */
+static bool g_to_telescope;
 /* SYN-OS: the world has been entered from the main menu (CONTINUE goes back to it) */
 static bool g_entered;
 /* SYN-OS: a status message is on screen (it fades, so keep drawing) */
@@ -224,6 +229,7 @@ static void quit_now(App *a)
 static void request_quit(App *a)
 {
     g_switch = 0;
+    g_to_telescope = false;
     msgbox_open(a, MB_QUIT_SAVE, "Save world", "Do you want to save this world before quitting?");
 }
 
@@ -232,6 +238,7 @@ static void request_quit(App *a)
 static void request_switch(App *a)
 {
     g_switch = BIO_SWITCH_BIOGENESIS;
+    g_to_telescope = false;
     msgbox_open(a, MB_QUIT_SAVE, "Save world",
                 "Do you want to save this world before switching to Biogenesis 0.9?");
 }
@@ -390,8 +397,10 @@ void app_file_chosen(App *a, FilePurpose purpose, const char *path)
 static void msg_answer(App *a, MsgPurpose p, int answer)
 {
     /* cancelled: not switching after all */
-    if (p == MB_QUIT_SAVE && answer != 0 && answer != 1)
+    if (p == MB_QUIT_SAVE && answer != 0 && answer != 1) {
         g_switch = 0;
+        g_to_telescope = false;
+    }
     if (p == MB_QUIT_SAVE) {
         if (answer == 0) {
             if (a->game_file[0]) {
@@ -608,6 +617,7 @@ typedef enum {
     A_FAMILY, /* the selected organism's species, in the family tree */
     A_MINIMAP,
     A_KEEP, /* the selected organism's code into the being library */
+    A_CREATE_WINNER, /* a being worked out for the world as it is (syn/winner.h) */
     /* SYN-OS's screens and shell */
     A_WORLD,
     A_LIBRARY,
@@ -765,6 +775,88 @@ static void note_action(App *a, Action act)
     default:
         break;
     }
+}
+
+/* Create a winner (syn/winner.h): the world waits while the search works
+ * on a copy of it, then the winner is pasted where the search put it. */
+static bool g_winner_resume; /* the world was running when it was asked for */
+
+static void winner_begin(App *a)
+{
+    char err[300];
+    if (!syn_winner_start(&a->world, a->popup_wx, a->popup_wy, 180, err, sizeof err)) {
+        char msg[400];
+        snprintf(msg, sizeof msg, "No winner: %s", err);
+        syn_shell_notify(msg, true);
+        return;
+    }
+    g_winner_resume = a->active;
+    a->active = false;
+    syn_shell_notify("Working out a winner for the world as it is, on every core: the world waits until it is "
+                     "placed",
+                     false);
+}
+
+static void winner_poll(App *a)
+{
+    const char *s;
+    while ((s = syn_winner_line()))
+        syn_shell_print(SHELL_OUT, "%s", s);
+    if ((s = syn_winner_verdict()))
+        syn_shell_notify(s, false);
+    if (!syn_winner_running())
+        return;
+    if (syn_winner_hash(&a->world) != syn_winner_start_hash()) {
+        syn_winner_cancel();
+        syn_shell_notify("The world moved on while the winner was worked out, so nothing was placed. Pause it "
+                         "and ask again",
+                         true);
+        return;
+    }
+    WinnerResult r;
+    if (!syn_winner_poll(&r))
+        return;
+    while ((s = syn_winner_line()))
+        syn_shell_print(SHELL_OUT, "%s", s);
+    a->active = g_winner_resume;
+    char msg[700], err[256];
+    if (!r.found) {
+        snprintf(msg, sizeof msg, "No winner: %s", r.why);
+        syn_shell_notify(msg, true);
+        return;
+    }
+    /* read and pasted with no frame between: Color Mod's collector only
+     * keeps what the world holds */
+    GeneticCode *gc = bgg_read(r.bgg, err, sizeof err);
+    if (!gc) {
+        snprintf(msg, sizeof msg, "No winner: %s", err);
+        syn_shell_notify(msg, true);
+        return;
+    }
+    bool placed = app_paste_code(a, gc, r.x, r.y);
+    Organism *o = NULL;
+    for (int i = a->world.norgs - 1; placed && i >= 0 && !o; i--)
+        if (a->world.orgs[i]->gc == gc)
+            o = a->world.orgs[i];
+    if (!placed) {
+        snprintf(msg, sizeof msg, "The winner found no room at (%d, %d)", r.x, r.y);
+        syn_shell_notify(msg, true);
+        return;
+    }
+    a->selected = a->tracked = o;
+    syn_history_user(&a->world, 'W', 0, "You created a winner");
+    syn_winner_expect(&a->world, &r);
+    if (r.owns)
+        snprintf(msg, sizeof msg,
+                 "Winner placed at (%d, %d): %s. Calculated: its bloodline is all that lives from time %lld (%d "
+                 "organisms), %d at time %lld",
+                 r.x, r.y, r.label, (long long)r.t, r.alive, r.end_n, (long long)r.end_t);
+    else
+        snprintf(msg, sizeof msg,
+                 "Winner placed at (%d, %d): %s. None tried was all that lives by the search's end; this one is "
+                 "%d of the %d living at time %lld",
+                 r.x, r.y, r.label, r.mine, r.alive, (long long)r.t);
+    syn_shell_notify(msg, false);
 }
 
 static void do_action(App *a, Action act)
@@ -1002,6 +1094,9 @@ static void do_action(App *a, Action act)
                      (long long)a->world.stats.time);
             syn_library_keep(a, b->gc, "Saved", sp[0] ? sp : "ORGANISM", origin);
         }
+        break;
+    case A_CREATE_WINNER:
+        winner_begin(a);
         break;
     default:
         if (act >= A_LOOK && act <= A_LOOK_LAST)
@@ -1395,6 +1490,9 @@ static int synos_commands(App *a, ShellCommand *c)
     s = "NEW LIFE";
     CMD(.id = A_CREATE_RANDOM, .section = s, .label = "Create a random organism", .word = "random",
         .icon = ICON_WAND);
+    CMD(.id = A_CREATE_WINNER, .section = s, .label = "Create a winner", .word = "winner", .icon = ICON_TROPHY,
+        .disabled = syn_winner_running(),
+        .tip = "A being worked out for the world as it is, whose bloodline will be all that lives");
     CMD(.id = A_PASTE, .section = s, .label = "Paste the copied organism", .key = "Ctrl+V",
         .word = "paste", .icon = ICON_PASTE, .disabled = !a->clipboard);
     CMD(.id = A_IMPORT, .section = s, .label = "Import a .bgg...", .word = "import", .icon = ICON_IMPORT);
@@ -1502,6 +1600,7 @@ static int synos_menu_items(App *a, Organism *b, ShellCommand *c)
     } else {
         CMD(.id = A_PASTE, .label = "Paste", .key = "Ctrl+V", .icon = ICON_PASTE, .disabled = !a->clipboard);
         CMD(.id = A_CREATE_RANDOM, .label = "Create randomly", .icon = ICON_WAND);
+        CMD(.id = A_CREATE_WINNER, .label = "Create a winner", .icon = ICON_TROPHY, .disabled = syn_winner_running());
         CMD(.id = A_IMPORT, .label = "Import...", .icon = ICON_IMPORT);
     }
     return n;
@@ -1579,6 +1678,9 @@ static Action synos_card(App *a, int W, int H)
         t[n++] = (ShellCommand){.id = A_KEEP, .label = "Keep", .icon = ICON_BOOKMARK};
     }
     c.nactions = n;
+    /* what kind of being it is (syn/kind.h) */
+    syn_kind_label(o->gc, c.kind, sizeof c.kind);
+    syn_kind_describe(o->gc, c.about, sizeof c.about);
     c.draw_body = card_body;
     c.ud = a;
     return (Action)syn_shell_card(W, H, &c);
@@ -1647,7 +1749,7 @@ static Action synos_bar(App *a, int W)
 /* the console's own words, beside the commands' */
 static const char *const k_console_words[] = {
     "help", "clear", "seed", "generator", "run", "speed", "co2", "ch4", "find", "goto", "zoom", "look",
-    "theme", "info",
+    "theme", "info", SYN_GUIDE_WORDS,
 };
 
 static void console_help(const ShellCommand *c, int n)
@@ -1667,6 +1769,10 @@ static void console_help(const ShellCommand *c, int n)
     syn_shell_print(SHELL_HEAD, "THE RANDOM GENERATOR (java.util.Random, 48 bits)");
     syn_shell_print(SHELL_OUT, "  seed               the seed this world was made from, when it was made here");
     syn_shell_print(SHELL_OUT, "  generator [STATE]  the generator's state now, or set it (0x... or decimal)");
+    syn_shell_print(SHELL_HEAD, "THE FIELD GUIDE");
+    syn_shell_print(SHELL_OUT, "  colour [NAME]      what every colour does, or one in full");
+    syn_shell_print(SHELL_OUT, "  kind               what kind of being the selected organism is");
+    syn_shell_print(SHELL_OUT, "  guide              the library's field guide");
     syn_shell_list(c, n);
 }
 
@@ -1814,6 +1920,8 @@ static void console_run(App *a, const char *text, const ShellCommand *cmds, int 
                 return;
             }
         syn_shell_print(SHELL_ERROR, "no theme %s (theme lists them)", v[1]);
+    } else if (syn_guide_console(argc, v, a->selected ? a->selected->gc : NULL)) {
+        /* colour, kind, guide (syn/guide_console.h) */
     } else {
         const ShellCommand *c = syn_shell_lookup(cmds, ncmds, k);
         if (!c) {
@@ -1887,6 +1995,14 @@ static Action synos_frame(App *a, int W, int H, bool keys)
             syn_library_open_from(SYNOS_MENU);
             synos_set_screen(SYNOS_LIBRARY);
             break;
+        case SYNOS_OPEN_TELESCOPE:
+            /* the telescope is Biogenesis 0.9's: switched to, as View >
+             * Biogenesis 0.9 does, and opened there */
+            g_switch = BIO_SWITCH_BIOGENESIS;
+            g_to_telescope = true;
+            msgbox_open(a, MB_QUIT_SAVE, "Save world",
+                        "The telescope is Biogenesis 0.9's. Do you want to save this world before switching to it?");
+            break;
         case SYNOS_QUIT:
             act = A_QUIT;
             break;
@@ -1927,6 +2043,8 @@ static Action synos_frame(App *a, int W, int H, bool keys)
                          a->world.height);
         if (g_made_known && k > 0 && (size_t)k < sizeof right)
             snprintf(right + k, sizeof right - (size_t)k, "   seed %lld", (long long)state_seed(g_made_state));
+        if (syn_winner_status())
+            snprintf(right, sizeof right, "%s", syn_winner_status());
         syn_shell_hints(W, H, hints, 7, right);
     }
     if (shell) {
@@ -1971,7 +2089,7 @@ static Action synos_overlays(App *a, int W, int H)
         centre = true;
     }
     /* made or pasted from the launcher or the console: in the middle of the view */
-    if (centre && (act == A_PASTE || act == A_CREATE_RANDOM)) {
+    if (centre && (act == A_PASTE || act == A_CREATE_RANDOM || act == A_CREATE_WINNER)) {
         double cx, cy;
         wv_screen_to_world(&a->view, W / 2, H / 2, &cx, &cy);
         a->popup_wx = (int)floor(cx);
@@ -1984,6 +2102,7 @@ static Action synos_overlays(App *a, int W, int H)
 
 static void run_simulation(App *a)
 {
+    winner_poll(a);
     uint64_t now = SDL_GetPerformanceCounter();
     double dt = (now - a->last_tick) * 1000.0 / SDL_GetPerformanceFrequency();
     a->last_tick = now;
@@ -2534,5 +2653,6 @@ int app_run(void)
     syn_shutdown();
     gfx_shutdown();
     /* the launcher keeps the window for Biogenesis 0.9, or closes it */
+    bio_host.open = g_switch == BIO_SWITCH_BIOGENESIS && g_to_telescope ? BIO_OPEN_TELESCOPE : 0;
     return g_switch;
 }

@@ -199,6 +199,11 @@ int syn_gene_col(const GeneticCode *gc, int i)
     return syn_col(gc->genes[i]->color);
 }
 
+double syn_gene_len(const GeneticCode *gc, int i)
+{
+    return gc->genes[i]->length;
+}
+
 int syn_generation(const Organism *o)
 {
     return o->gc ? o->gc->generation : 0;
@@ -276,6 +281,11 @@ int syn_genes(const GeneticCode *gc)
 int syn_gene_col(const GeneticCode *gc, int i)
 {
     return gc->genes[i].color;
+}
+
+double syn_gene_len(const GeneticCode *gc, int i)
+{
+    return gc->genes[i].length;
 }
 
 int syn_generation(const Organism *o)

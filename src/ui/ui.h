@@ -103,6 +103,9 @@ bool ui_popup_open_for(uint32_t owner);
 #ifdef BIO_SYN_EDITION
 /* Any popup menu is open (it takes Esc for itself). */
 bool ui_popup_showing(void);
+/* While owner's popup is open: tips[i], when hovered, is item i's tooltip
+ * (the strings must outlive the popup; called each frame it shows) */
+void ui_popup_tips(uint32_t owner, const char *const *tips, int n);
 /* After a stretch in which events went elsewhere (a world being made):
  * the mouse buttons held and the pointer as they are now. */
 void ui_input_resync(void);

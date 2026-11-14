@@ -25,6 +25,8 @@
 #include "sim/params.h"
 #include "syn/arena.h"
 #include "syn/batch.h"
+#include "syn/guide.h"
+#include "syn/kind.h"
 #include "syn/library.h"
 #include "syn/palette.h"
 #include "syn/shell.h"
@@ -61,6 +63,8 @@ static struct {
     int nf;
     char folder[LIB_PATH]; /* the one shown */
     bool ladder;           /* the arena's ladder shown instead */
+    bool guide;            /* the field guide shown instead (syn/guide.h, syn/kind.h) */
+    float gscroll;
     LibEntry *e;
     GeneticCode **gc; /* the folder's codes, read with it */
     int ne;
@@ -133,12 +137,12 @@ static void body(UIRect r, const GeneticCode *gc)
         free(lines);
 }
 
-/* Text wrapped to width w from (x, y). */
-static void para(TTF_Font *f, const char *text, float x, float y, float w, Tone t)
+/* Text wrapped to width w from (x, y), drawn or only measured: its height. */
+static float para_h(TTF_Font *f, const char *text, float x, float y, float w, Tone t, bool draw)
 {
     char line[400];
     size_t n = 0;
-    float lh = skin_text_height(f) + 4;
+    float lh = skin_text_height(f) + 4, h = 0;
     const char *p = text;
     while (*p) {
         const char *q = p;
@@ -150,8 +154,9 @@ static void para(TTF_Font *f, const char *text, float x, float y, float w, Tone 
         snprintf(cand, sizeof cand, "%.*s%.*s", (int)n, line, (int)(q - p), n ? p : p + strspn(p, " "));
         if (n && skin_text_width(f, cand) > w) {
             line[n] = '\0';
-            skin_text(f, line, x, y, t, ALIGN_LEFT);
-            y += lh;
+            if (draw)
+                skin_text(f, line, x, y + h, t, ALIGN_LEFT);
+            h += lh;
             n = 0;
             p += strspn(p, " ");
             continue;
@@ -162,8 +167,16 @@ static void para(TTF_Font *f, const char *text, float x, float y, float w, Tone 
     }
     if (n) {
         line[n] = '\0';
-        skin_text(f, line, x, y, t, ALIGN_LEFT);
+        if (draw)
+            skin_text(f, line, x, y + h, t, ALIGN_LEFT);
+        h += lh;
     }
+    return h;
+}
+
+static void para(TTF_Font *f, const char *text, float x, float y, float w, Tone t)
+{
+    para_h(f, text, x, y, w, t, true);
 }
 
 static void say(const char *fmt, const char *a, const char *b)
@@ -263,6 +276,7 @@ static void show(const char *folder, bool ladder)
 {
     snprintf(L.folder, sizeof L.folder, "%s", folder);
     L.ladder = ladder;
+    L.guide = false;
     L.bscroll = 0;
     L.ask = ASK_NONE;
     rescan("");
@@ -338,7 +352,7 @@ static void folders_view(UIRect r)
     /* the folder buttons at the bottom; the name field above them */
     float by = r.y + r.h - 34, fy = by - 8 - 30;
     UIRect list = {r.x, top, r.w, fy - 10 - top};
-    int rows = L.nf + 2; /* the folders, a gap, the ladder */
+    int rows = L.nf + 3; /* the folders, a gap, the ladder, the field guide */
     float maxs = fmaxf(0, (float)rows * ROW_H - list.h);
     if (over(list))
         L.fscroll -= ui_wheel_fy() * ROW_H;
@@ -350,15 +364,20 @@ static void folders_view(UIRect r)
         UIRect row = {list.x, list.y + (float)i * ROW_H - L.fscroll, list.w, ROW_H};
         if (row.y + row.h < list.y || row.y > list.y + list.h)
             continue;
-        bool ladder = i == L.nf + 1;
-        bool on = ladder ? L.ladder : !L.ladder && !strcmp(L.folders[i], L.folder);
+        bool ladder = i == L.nf + 1, guide = i == L.nf + 2;
+        bool on = guide    ? L.guide
+                  : ladder ? L.ladder && !L.guide
+                           : !L.ladder && !L.guide && !strcmp(L.folders[i], L.folder);
         if (on)
             skin_fill(row, skin_theme()->accent, 0.22f);
         else if (over(row) && over(list))
             skin_row_hover(row);
         char label[LIB_PATH], count[16], fit[LIB_PATH];
         int depth = 0;
-        if (ladder) {
+        if (guide) {
+            snprintf(label, sizeof label, "FIELD GUIDE");
+            count[0] = '\0';
+        } else if (ladder) {
             snprintf(label, sizeof label, "ARENA LADDER");
             snprintf(count, sizeof count, "%d", syn_arena_count());
         } else {
@@ -373,14 +392,22 @@ static void folders_view(UIRect r)
         float cw = skin_text_width(fo->small, count);
         skin_fit(fo->body, label, row.x + row.w - 16 - cw - x, fit, sizeof fit);
         float ty = row.y + (ROW_H - skin_text_height(fo->body)) / 2;
-        skin_text(fo->body, fit, x, ty, ladder ? TONE_ACCENT : TONE_TEXT, ALIGN_LEFT);
+        skin_text(fo->body, fit, x, ty, ladder || guide ? TONE_ACCENT : TONE_TEXT, ALIGN_LEFT);
         skin_text(fo->small, count, row.x + row.w - 8, ty + 2, TONE_MUTED, ALIGN_RIGHT);
         if (over(row) && over(list)) {
             if (ladder)
                 ui_tooltip("The arena's beings for its settings as they are now, best first: keep "
                            "any of them in the library");
-            if (ui_pressed(sdl(row), 1))
-                show(ladder ? "" : L.folders[i], ladder);
+            if (guide)
+                ui_tooltip("What every colour does, and the kinds of being they make");
+            if (ui_pressed(sdl(row), 1)) {
+                if (guide) {
+                    L.guide = true;
+                    L.gscroll = 0;
+                } else {
+                    show(ladder ? "" : L.folders[i], ladder);
+                }
+            }
         }
     }
     gfx_clip_pop();
@@ -529,12 +556,14 @@ static void cards_view(App *a, UIRect r)
         if (over(c) && over(grid)) {
             if (!on)
                 skin_fill(c, skin_theme()->accent, 0.10f);
-            char tip[400];
+            char tip[400], kind[128] = "";
+            if (gc)
+                syn_kind_label(gc, kind, sizeof kind);
             if (L.ladder) {
-                snprintf(tip, sizeof tip, "%s: %s. Double-click for its genes.", nm, syn_arena_at(i)->plan);
+                snprintf(tip, sizeof tip, "%s, %s: %s. Double-click for its genes.", nm, kind, syn_arena_at(i)->plan);
             } else {
-                snprintf(tip, sizeof tip, "%s%s%s%s%s. Double-click for its genes.", nm,
-                         L.e[i].origin[0] ? ", from " : "", L.e[i].origin, L.e[i].saved[0] ? ", kept " : "",
+                snprintf(tip, sizeof tip, "%s%s%s%s%s%s%s. Double-click for its genes.", nm, kind[0] ? ", " : "",
+                         kind, L.e[i].origin[0] ? ", from " : "", L.e[i].origin, L.e[i].saved[0] ? ", kept " : "",
                          L.e[i].saved);
             }
             ui_tooltip(tip);
@@ -570,6 +599,83 @@ static void cards_view(App *a, UIRect r)
         else if (take == 3)
             enter_arena(gc, nm);
     }
+}
+
+/* ---- the field guide ---- */
+
+static void guide_view(UIRect r)
+{
+    const Fonts *fo = synos_fonts();
+    char title[200], fit[200];
+    snprintf(title, sizeof title, "FIELD GUIDE  \xc2\xb7  what each colour of %s does, and the kinds of being",
+             SIM_TITLE);
+    skin_text(fo->small_bold, skin_fit(fo->small_bold, title, r.w, fit, sizeof fit), r.x, r.y, TONE_MUTED,
+              ALIGN_LEFT);
+    float top = r.y + skin_text_height(fo->small_bold) + 8;
+    UIRect list = {r.x, top, r.w, r.y + r.h - top};
+    /* the whole length, as it was last drawn */
+    static float total;
+    if (over(list))
+        L.gscroll -= ui_wheel_fy() * 80;
+    L.gscroll = fminf(fmaxf(L.gscroll, 0), fmaxf(0, total - list.h));
+    gfx_clip_push(sdl(list));
+    float x = list.x, y = list.y - L.gscroll;
+    float nx = x + 34, tx = nx + 150, tw = list.x + list.w - 12 - tx;
+    float hh = skin_text_height(fo->small_bold) + 8, bh = skin_text_height(fo->body) + 4;
+    int last = -1;
+    for (int s = 0; s < SYN_NCOL; s++) {
+        const char *line = syn_guide_short(s), *more = syn_guide_long(s);
+        Role ro = syn_col_role(s);
+#ifdef BIO_COLOUR
+        /* corpses are brown, under OUT OF ACTION */
+        if (ro == ROLE_DEAD)
+            continue;
+#endif
+        if (!line[0])
+            continue;
+        if ((int)ro != last) {
+            y += last >= 0 ? 14 : 0;
+            skin_text(fo->small_bold, syn_guide_role(ro), x, y, TONE_ACCENT, ALIGN_LEFT);
+            if (ro == ROLE_INACTIVE)
+                skin_text(fo->small, "what segments turn for a while", x + 140, y, TONE_MUTED, ALIGN_LEFT);
+            y += hh;
+            last = (int)ro;
+        }
+        float rh = bh + para_h(fo->small, more, tx, 0, tw, TONE_MUTED, false) + 10;
+        if (y + rh >= list.y && y <= list.y + list.h) {
+            uint8_t cr, cg, cb;
+            syn_col_rgb(s, &cr, &cg, &cb);
+            UIRect sw = {x + 2, y + 3, 24, 14};
+            skin_fill((UIRect){sw.x - 1, sw.y - 1, sw.w + 2, sw.h + 2}, skin_theme()->border, 1);
+            skin_fill(sw, (Rgb){cr, cg, cb}, 1);
+            skin_text(fo->bold, syn_col_name(s), nx, y, syn_guide_is_gene(s) ? TONE_TEXT : TONE_MUTED,
+                      ALIGN_LEFT);
+            skin_text(fo->body, line, tx, y, TONE_TEXT, ALIGN_LEFT);
+            para_h(fo->small, more, tx, y + bh, tw, TONE_MUTED, true);
+        }
+        y += rh;
+    }
+    /* the kinds the colours make (syn/kind.h) */
+    y += 14;
+    skin_text(fo->small_bold, "KINDS OF BEING", x, y, TONE_ACCENT, ALIGN_LEFT);
+    skin_text(fo->small, "what a being is called by what most of it does", x + 140, y, TONE_MUTED, ALIGN_LEFT);
+    y += hh;
+    for (int k = 0; k < KIND_COUNT; k++) {
+#ifdef BIO_COLOUR
+        if (k == KIND_PREDATOR)
+            continue;
+#else
+        if (k >= KIND_GRAZER && k <= KIND_PARASITE)
+            continue;
+#endif
+        if (y + bh >= list.y && y <= list.y + list.h) {
+            skin_text(fo->bold, syn_kind_name((Kind)k), nx, y, TONE_TEXT, ALIGN_LEFT);
+            skin_text(fo->body, syn_kind_meaning((Kind)k), tx, y, TONE_TEXT, ALIGN_LEFT);
+        }
+        y += bh + 6;
+    }
+    total = y + L.gscroll - list.y + 12;
+    gfx_clip_pop();
 }
 
 /* the picked being's name and what can be done with it */
@@ -620,6 +726,20 @@ static void picked_view(App *a, UIRect r)
     float ax = field.x + field.w + 16;
     skin_text(fo->small, skin_fit(fo->small, about, r.x + r.w - ax, fit, sizeof fit), ax, y + 10,
               TONE_MUTED, ALIGN_LEFT);
+
+    /* what kind of being it is (syn/kind.h), along the bottom */
+    {
+        char label[128], text[600];
+        syn_kind_label(gc, label, sizeof label);
+        syn_kind_describe(gc, text, sizeof text);
+        float lh = skin_text_height(fo->small) + 4, ky = r.y + r.h - 2 * lh - 2;
+        float kx = r.x + skin_text(fo->small_bold, label, r.x, ky, TONE_ACCENT, ALIGN_LEFT) + 10;
+        char fit2[600];
+        skin_text(fo->small, skin_fit(fo->small, text, r.x + r.w - kx, fit2, sizeof fit2), kx, ky, TONE_MUTED,
+                  ALIGN_LEFT);
+        if (over((UIRect){r.x, ky, r.w, lh}))
+            ui_tooltip(text);
+    }
 
     /* the actions */
     y += 34 + 12;
@@ -735,6 +855,12 @@ void syn_library_open_from(int screen)
     L.back = screen;
 }
 
+void syn_library_show_guide(void)
+{
+    L.guide = true;
+    L.gscroll = 0;
+}
+
 void syn_library_frame(App *a, int w, int h)
 {
     const Fonts *fo = synos_fonts();
@@ -782,7 +908,7 @@ void syn_library_frame(App *a, int w, int h)
 
     float bottom = panel.y + panel.h - PAD;
     float status_h = skin_text_height(fo->small) + 8;
-    float pick_h = 12 + 34 + 12 + 34 + 8 + 34 + 8;
+    float pick_h = 12 + 34 + 12 + 34 + 8 + 34 + 8 + 2 * (skin_text_height(fo->small) + 4) + 4;
     UIRect left = {panel.x + PAD, y, 290, bottom - y};
     UIRect rightr = {left.x + left.w + 24, y, right - left.x - left.w - 24, bottom - y - pick_h - status_h};
     if (!L.ready) {
@@ -790,6 +916,10 @@ void syn_library_frame(App *a, int w, int h)
         return;
     }
     folders_view(left);
+    if (L.guide) {
+        guide_view((UIRect){rightr.x, rightr.y, rightr.w, bottom - rightr.y});
+        return;
+    }
     cards_view(a, rightr);
     picked_view(a, (UIRect){rightr.x, rightr.y + rightr.h + 8, rightr.w, pick_h});
     if (L.status[0] && SDL_GetTicks() - L.status_at < 8000)
@@ -841,6 +971,8 @@ void syn_library_shot_prepare(void)
     const char *f = getenv("SYN_BIOGENESIS_SHOT_LIBRARY");
     if (f && !strcmp(f, "ladder"))
         show("", true);
+    else if (f && !strcmp(f, "guide"))
+        show("", false), L.guide = true;
     else
         show(f ? f : "", false);
     if (L.ne > 0)

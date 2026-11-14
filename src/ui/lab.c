@@ -27,6 +27,7 @@
 #include "sim/params.h"
 #include "ui/app.h"
 #ifdef BIO_SYN_EDITION
+#include "syn/guide.h"
 #include "syn/library_screen.h"
 #include "syn/shell.h"
 #include "synos/synos.h"
@@ -175,9 +176,19 @@ void lab_draw(App *a)
         for (int k = 0; k < GENE_COLORS; k++)
             if (k_lab_colors[k] == g->color)
                 sel = k;
-        if (ui_color_combo(ui_id("lab_col", (uint32_t)i), (SDL_Rect){cols[3], ry, 120, rh},
-                           k_lab_colors, k_lab_color_names, GENE_COLORS, &sel))
+        SDL_Rect colr = {cols[3], ry, 120, rh};
+        if (ui_color_combo(ui_id("lab_col", (uint32_t)i), colr, k_lab_colors, k_lab_color_names,
+                           GENE_COLORS, &sel))
             g->color = (uint8_t)k_lab_colors[sel];
+        if (synos_active()) {
+            /* SYN-OS: the field guide's line for each (syn/guide.h) */
+            static const char *tips[GENE_COLORS];
+            for (int k = 0; k < GENE_COLORS; k++)
+                tips[k] = syn_guide_short(k_lab_colors[k]);
+            ui_popup_tips(ui_id("lab_col", (uint32_t)i), tips, GENE_COLORS);
+            if (ui_hover(colr))
+                ui_tooltip(tips[sel]);
+        }
         if (ui_button(ui_id("lab_ins", (uint32_t)i), (SDL_Rect){cols[4], ry, 70, rh}, "Insert",
                       l->ngenes < LAB_MAX_GENES))
             act_insert = i;

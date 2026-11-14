@@ -101,9 +101,12 @@ obj/aio/colour.o: $(COLOUR_OBJ)
 	@mkdir -p $(dir $@)
 	$(LD) -r -o $@.all $^
 	$(OBJCOPY) --redefine-sym main=colour_main --redefine-sym syn_arena_main=colour_arena_main \
-		--redefine-sym syn_arena_worker=colour_arena_worker $@.all
+		--redefine-sym syn_arena_worker=colour_arena_worker \
+		--redefine-sym syn_winner_main=colour_winner_main \
+		--redefine-sym syn_winner_worker=colour_winner_worker $@.all
 	$(OBJCOPY) --keep-global-symbol=colour_main --keep-global-symbol=colour_arena_main \
-		--keep-global-symbol=colour_arena_worker $@.all $@
+		--keep-global-symbol=colour_arena_worker --keep-global-symbol=colour_winner_main \
+		--keep-global-symbol=colour_winner_worker $@.all $@
 	rm -f $@.all
 
 obj/aio/launcher.o: src/launcher.c
@@ -208,6 +211,14 @@ tests/history_check_colour$(EXE): tests/history_check.c src/syn/history.c src/sy
 tests/colour_bgg_tool$(EXE): tests/colour_bgg_tool.c src/colour/io/bgg.c $(COLOUR_SIM_OBJ)
 	$(CC) -Isrc/colour $(CFLAGS) -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
 
+# what Create a winner (src/syn/winner.c) stands on, checked with the
+# simulation alone: a saved world opened again goes on as the one left
+# running, and a winner's bloodline is what the search said it would be
+tests/winner_check$(EXE): tests/winner_check.c $(SIM_SRC) $(MATH_OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+tests/winner_check_colour$(EXE): tests/winner_check.c src/colour/io/bgg.c obj/colour/colour/io/bgw.o $(COLOUR_SIM_OBJ)
+	$(CC) -Isrc/colour $(CFLAGS) -DBIO_COLOUR -DBIO_NO_GUI -o $@ $^ $(LDLIBS)
+
 # The being search (tools/being)
 being: tools/being/being$(EXE)
 
@@ -220,8 +231,10 @@ tools/being/being$(EXE): tools/being/being.c $(SIM_SRC) $(MATH_OBJ)
 test: syn-biogenesis$(EXE) tests/geom_check$(EXE) tests/sim_check$(EXE) tests/bgg_tool$(EXE) \
       tests/math_check$(EXE) tests/num_check$(EXE) tests/bgw_fuzz$(EXE) tests/history_check$(EXE) \
       tests/history_check_small$(EXE) tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) \
-      tests/telescope_check$(EXE) tests/library_check$(EXE)
-	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; tests/arena.sh; c=$$?; [ $$a = 0 ] && [ $$b = 0 ] && [ $$c = 0 ]
+      tests/telescope_check$(EXE) tests/library_check$(EXE) tests/winner_check$(EXE) \
+      tests/winner_check_colour$(EXE)
+	tests/run.sh; a=$$?; tests/colour.sh; b=$$?; tests/arena.sh; c=$$?; tests/winner.sh; d=$$?; \
+		[ $$a = 0 ] && [ $$b = 0 ] && [ $$c = 0 ] && [ $$d = 0 ]
 
 # The program without its debugging information, with its assets, in
 # dist/syn-biogenesis/: on Windows a folder that runs anywhere
@@ -238,7 +251,7 @@ clean:
 		tests/sim_check$(EXE) tests/bgg_tool$(EXE) tests/math_check$(EXE) tests/num_check$(EXE) \
 		tests/bgw_fuzz$(EXE) tests/history_check$(EXE) tests/history_check_small$(EXE) \
 		tests/history_check_colour$(EXE) tests/colour_bgg_tool$(EXE) tests/telescope_check$(EXE) \
-		tests/library_check$(EXE) \
+		tests/library_check$(EXE) tests/winner_check$(EXE) tests/winner_check_colour$(EXE) \
 		tools/being/being$(EXE)
 
 # compile flags live here: a change to them rebuilds what they build

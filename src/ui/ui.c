@@ -32,7 +32,8 @@
 
 #define MAX_LAYERS 32
 #define MAX_KEYS 32
-#define POPUP_MAX 32
+/* Color Mod's 46 gene colours are the longest list */
+#define POPUP_MAX 64
 
 typedef struct {
     uint32_t id;
@@ -82,6 +83,11 @@ static struct {
     bool popup_just_opened;
     uint32_t popup_result_owner;
     int popup_result;
+#ifdef BIO_SYN_EDITION
+    /* a line about each item, as its tooltip (ui_popup_tips) */
+    const char *const *popup_tips;
+    int popup_ntips;
+#endif
 
     char tooltip[128];
     int tooltip_x, tooltip_y;
@@ -801,6 +807,10 @@ void ui_popup_open(uint32_t owner, int x, int y, const char *const *items, const
     }
     U.popup_just_opened = true;
     U.active = 0;
+#ifdef BIO_SYN_EDITION
+    U.popup_tips = NULL;
+    U.popup_ntips = 0;
+#endif
 }
 
 bool ui_popup_open_for(uint32_t owner)
@@ -812,6 +822,14 @@ bool ui_popup_open_for(uint32_t owner)
 bool ui_popup_showing(void)
 {
     return U.popup_open;
+}
+
+void ui_popup_tips(uint32_t owner, const char *const *tips, int n)
+{
+    if (!ui_popup_open_for(owner))
+        return;
+    U.popup_tips = tips;
+    U.popup_ntips = n;
 }
 
 void ui_input_resync(void)
@@ -847,18 +865,29 @@ static void popup_frame(void)
         return;
     int fh = gfx_font_h();
     int ih = fh + 8, sh = 9;
-    int w = 120, h = 4;
-    for (int i = 0; i < U.popup_n; i++) {
-        if (U.popup_items[i][0] == '-') {
-            h += sh;
-        } else {
-            int tw = gfx_text_w(U.popup_items[i]) + 36;
-            w = tw > w ? tw : w;
-            h += ih;
-        }
-    }
     int sw, sh_;
     SDL_GetRendererOutputSize(gfx_renderer(), &sw, &sh_);
+    /* one column, or more when one would run off the screen */
+    int maxh = sh_ - 8 > ih * 4 ? sh_ - 8 : ih * 4;
+    int colw = 120, ncol = 1, h = 4, cy = 2;
+    int item_col[POPUP_MAX], item_y[POPUP_MAX];
+    for (int i = 0; i < U.popup_n; i++) {
+        bool sep = U.popup_items[i][0] == '-';
+        int ihh = sep ? sh : ih;
+        if (cy > 2 && cy + ihh + 2 > maxh) {
+            ncol++;
+            cy = 2;
+        }
+        item_col[i] = ncol - 1;
+        item_y[i] = cy;
+        cy += ihh;
+        h = cy + 2 > h ? cy + 2 : h;
+        if (!sep) {
+            int tw = gfx_text_w(U.popup_items[i]) + 36;
+            colw = tw > colw ? tw : colw;
+        }
+    }
+    int w = colw * ncol;
     int x = U.popup_x, y = U.popup_y;
     if (x + w > sw)
         x = sw - w;
@@ -880,16 +909,20 @@ static void popup_frame(void)
 #ifdef BIO_SYNOS
     }
 #endif
-    int cy = y + 2;
     int chosen = -1;
     for (int i = 0; i < U.popup_n; i++) {
+        int ix = x + item_col[i] * colw;
+        cy = y + item_y[i];
         if (U.popup_items[i][0] == '-') {
-            gfx_line(x + 6, cy + sh / 2, x + w - 7, cy + sh / 2, C_BORDER);
-            cy += sh;
+            gfx_line(ix + 6, cy + sh / 2, ix + colw - 7, cy + sh / 2, C_BORDER);
             continue;
         }
-        SDL_Rect it = {x + 2, cy, w - 4, ih};
+        SDL_Rect it = {ix + 2, cy, colw - 4, ih};
         bool over = rect_has(it, U.mx, U.my) && U.popup_enabled[i];
+#ifdef BIO_SYN_EDITION
+        if (over && U.popup_tips && i < U.popup_ntips && U.popup_tips[i] && U.popup_tips[i][0])
+            ui_tooltip(U.popup_tips[i]);
+#endif
 #ifdef BIO_SYNOS
         if (SKINNED) {
             if (over)
@@ -898,7 +931,6 @@ static void popup_frame(void)
                      U.popup_enabled[i] ? C_TEXT : C_DISABLED);
             if (over && !U.popup_just_opened && (U.released[1] || U.released[3]))
                 chosen = i;
-            cy += ih;
             continue;
         }
 #endif
@@ -908,7 +940,6 @@ static void popup_frame(void)
                  U.popup_enabled[i] ? (over ? COL(255, 255, 255) : C_TEXT) : C_DISABLED);
         if (over && !U.popup_just_opened && (U.released[1] || U.released[3]))
             chosen = i;
-        cy += ih;
     }
     if (chosen >= 0) {
         U.popup_result_owner = U.popup_owner;

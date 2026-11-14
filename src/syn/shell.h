@@ -213,6 +213,8 @@ typedef struct {
     const char *state;    /* "ALIVE" */
     Tone state_tone;
     char subtitle[96];    /* its species */
+    char kind[96];        /* "Grazer · armoured" (syn/kind.h) */
+    char about[400];      /* what kind of being it is, in a sentence or two */
     ShellReadout cells[10];
     int ncells;
     /* two bars under the figures: what it has of what it needs, 0..1 */
